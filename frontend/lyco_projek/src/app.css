@@ -1,0 +1,147 @@
+@import 'tailwindcss';
+
+@theme {
+	--font-sans: 'Link Sans Product', 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+	--font-display: 'Link Sans Product', 'Inter', ui-sans-serif, system-ui, sans-serif;
+	--font-heading: 'Bricolage Grotesque', 'Inter', ui-sans-serif, system-ui, sans-serif;
+
+	/* Rubys admin (ditiru dari https://rubys.trackbill.cloud/admin) */
+	--color-brand-green: #3cbfa4;
+	--color-brand-green-deep: #138a72;
+	--color-brand-green-light: #f0faf7;
+	--color-ink: #13211e;
+	--color-rubys-muted: #5b6b67;
+	--color-rubys-border: #e3eeeb;
+	--color-rubys-bg: #fcfefd;
+
+	/* LYCO Linktree — https://linktr.ee/lycocoffee */
+	--color-lyco-950: #12151d;
+	--color-lyco-900: #1e2330;
+	--color-lyco-800: #262c3d;
+	--color-lyco-700: #323a52;
+	--color-lyco-border: #ffffff;
+
+	/* Espresso / dark brown (kept for compat) */
+	--color-espresso-950: #1a110c;
+	--color-espresso-900: #241811;
+	--color-espresso-800: #332218;
+	--color-espresso-700: #4a2f20;
+	--color-espresso-600: #5f3d29;
+	--color-espresso-500: #8b5e3c;
+
+	/* Coffee brown */
+	--color-coffee-700: #6f4428;
+	--color-coffee-600: #8b5a34;
+	--color-coffee-500: #a06a3d;
+
+	/* Caramel accent */
+	--color-caramel-700: #8d6238;
+	--color-caramel-600: #b07a45;
+	--color-caramel-500: #c68b59;
+	--color-caramel-400: #d5a071;
+	--color-caramel-100: #f3e2cc;
+
+	/* Cream / beige / off-white */
+	--color-cream-50: #fdfbf7;
+	--color-cream-100: #faf6f0;
+	--color-cream-200: #f1e8d9;
+	--color-cream-300: #e6d5be;
+	--color-cream-400: #e0cdae;
+	--color-beige-200: #eaddc8;
+
+	--shadow-soft: 0 20px 50px -20px rgb(26 17 12 / 0.25);
+	--shadow-card: 0 8px 30px -12px rgb(26 17 12 / 0.18);
+}
+
+html {
+	scroll-behavior: smooth;
+	scroll-padding-top: 88px;
+}
+
+body {
+	@apply font-sans antialiased;
+	background-color: var(--color-lyco-900);
+	color: #ffffff;
+	text-rendering: optimizeLegibility;
+	overflow-x: hidden;
+}
+
+::selection {
+	background: #ffffff;
+	color: var(--color-lyco-900);
+}
+
+/* Linktree LYCO style: pill 28px, transparent + white border */
+.btn-lyco {
+	border-radius: 28px;
+	border: 1px solid #ffffff;
+	background: transparent;
+	color: #ffffff;
+	transition:
+		background 0.25s ease,
+		transform 0.25s ease;
+}
+
+.btn-lyco:hover {
+	background: color-mix(in srgb, transparent 93%, #ffffff 7%);
+	transform: translateY(-2px);
+}
+
+.btn-lyco-solid {
+	border-radius: 28px;
+	border: 1px solid #ffffff;
+	background: #ffffff;
+	color: var(--color-lyco-900);
+	transition:
+		transform 0.25s ease,
+		background 0.25s ease;
+}
+
+.btn-lyco-solid:hover {
+	background: color-mix(in srgb, #ffffff 93%, var(--color-lyco-900) 7%);
+	transform: translateY(-2px);
+}
+
+.card-lyco {
+	border-radius: 28px;
+	border: 1px solid rgba(255, 255, 255, 0.2);
+	background: rgba(255, 255, 255, 0.05);
+}
+
+/* Admin industrial hitam-abu: baja gelap + highlight atas + garis diagonal halus */
+.bg-industrial {
+	background-color: #0b0d11;
+	background-image:
+		radial-gradient(ellipse 60% 40% at 50% 0%, rgb(255 255 255 / 0.06), transparent 70%),
+		repeating-linear-gradient(45deg, rgb(255 255 255 / 0.015) 0 2px, transparent 2px 6px);
+}
+
+/* Light scroll-reveal */
+.reveal {
+	opacity: 0;
+	transform: translateY(24px);
+	transition:
+		opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1),
+		transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+	will-change: opacity, transform;
+}
+
+.reveal.is-visible {
+	opacity: 1;
+	transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	html {
+		scroll-behavior: auto;
+	}
+	.reveal {
+		transition: none;
+		opacity: 1;
+		transform: none;
+	}
+}
+
+img {
+	max-width: 100%;
+}

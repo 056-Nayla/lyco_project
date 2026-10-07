@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# SvelteKit / Vite outputs
+.svelte-kit/
+build/
+dist/
+.vite/
+vite.config.*.timestamp*
+
+# Env
+.env
+.env.*
+!.env.example
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# Sumber mentah tidak ikut repo (simulasi: simpan lokal / Drive saja)
+# PDF menu 74MB penyebab GH001 + foto mentah dengan spasi
+*.pdf
+*.PDF
+**/foto cafe/
+**/foto cafe

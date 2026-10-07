@@ -1,0 +1,16 @@
+node_modules/
+.svelte-kit/
+build/
+dist/
+.vite/
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
+
+# Sumber mentah: simpan lokal saja, jangan push (PDF 74MB picu GH001)
+*.pdf
+*.PDF
+foto cafe/
+foto cafe
