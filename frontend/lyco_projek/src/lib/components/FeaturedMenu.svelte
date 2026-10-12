@@ -75,7 +75,7 @@
 								Tambah
 							</button>
 							<a
-								href="/menu"
+								href="/menu/{product.id}"
 								aria-label="Lihat detail {product.name}"
 								class="btn-lyco inline-flex h-10 items-center justify-center px-4 text-sm font-semibold"
 							>

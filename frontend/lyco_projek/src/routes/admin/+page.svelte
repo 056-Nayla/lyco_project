@@ -14,6 +14,7 @@
 		Pencil,
 		Plus,
 		QrCode,
+		Receipt,
 		RotateCcw,
 		Search,
 		Settings,
@@ -32,6 +33,7 @@
 		createProduct,
 		deleteCategoryApi,
 		deleteProductApi,
+		getAllOrders,
 		getToken,
 		getUsername,
 		login as apiLogin,
@@ -41,9 +43,12 @@
 		resetProductsApi,
 		resetSettingsApi,
 		resolveImage,
+		setOrderStatus,
 		updateProductApi,
 		updateSettingsApi,
-		uploadImageApi
+		uploadImageApi,
+		type Order,
+		type OrderStatus
 	} from '#lib/api.js';
 	import {
 		addCategory,
@@ -79,7 +84,7 @@
 	const FALLBACK_PASSWORD = 'lyco123';
 	const AUTH_KEY = 'lyco:admin:auth';
 
-	type Tab = 'dashboard' | 'menu' | 'kategori' | 'pengaturan';
+	type Tab = 'dashboard' | 'menu' | 'kategori' | 'pesanan' | 'pengaturan';
 	type DisabledKey = 'meja' | 'staf' | 'shift' | 'laporan';
 
 	let authed = $state(false);
@@ -96,6 +101,7 @@
 		{ icon: LayoutDashboard, label: 'Dashboard', key: 'dashboard' },
 		{ icon: UtensilsCrossed, label: 'Menu', key: 'menu' },
 		{ icon: Tags, label: 'Kategori', key: 'kategori' },
+		{ icon: Receipt, label: 'Pesanan', key: 'pesanan' },
 		{ icon: QrCode, label: 'Meja & QR', key: 'meja', disabled: true },
 		{ icon: Users, label: 'Staf', key: 'staf', disabled: true },
 		{ icon: Clock, label: 'Shift', key: 'shift', disabled: true },
@@ -107,6 +113,7 @@
 		dashboard: 'Ringkasan hari ini',
 		menu: 'Kelola menu cafe',
 		kategori: 'Kelola kategori menu',
+		pesanan: 'Pesanan masuk dari pembeli',
 		meja: 'Kelola meja dan QR code',
 		staf: 'Manajemen staf',
 		shift: 'Kelola jadwal shift staf',
@@ -121,8 +128,74 @@
 		kosong: categoriesState.items.filter((c) => countByCategory(c) === 0).length
 	});
 
-	// Catatan: cek backend via `getToken() && backendState.ok` langsung di tiap aksi
-	// agar selalu baca token terbaru dari sessionStorage.
+	// ── Pesanan masuk (sesi pembeli) ─────────────────────────────────
+	type OrderFilter = 'semua' | OrderStatus;
+	let orders = $state<Order[]>([]);
+	let ordersLoading = $state(false);
+	let ordersError = $state('');
+	let ordersFilter = $state<OrderFilter>('semua');
+	let expandedOrder = $state<number | null>(null);
+
+	const ORDER_LABEL: Record<OrderStatus, string> = {
+		baru: 'Baru',
+		diproses: 'Diproses',
+		selesai: 'Selesai',
+		batal: 'Batal'
+	};
+
+	const ORDER_CLS: Record<OrderStatus, string> = {
+		baru: 'bg-amber-400/15 text-amber-200',
+		diproses: 'bg-sky-400/15 text-sky-200',
+		selesai: 'bg-emerald-400/15 text-emerald-200',
+		batal: 'bg-white/10 text-white/50'
+	};
+
+	const newOrderCount = $derived(orders.filter((o) => o.status === 'baru').length);
+
+	const visibleOrders = $derived(
+		ordersFilter === 'semua' ? orders : orders.filter((o) => o.status === ordersFilter)
+	);
+
+	function fmtOrderTime(iso: string): string {
+		const d = new Date(iso.replace(' ', 'T') + 'Z');
+		if (Number.isNaN(d.getTime())) return iso;
+		return d.toLocaleString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+	}
+
+	async function loadOrders(): Promise<void> {
+		if (!getToken()) {
+			ordersError = 'Butuh login backend untuk melihat pesanan.';
+			return;
+		}
+		ordersLoading = true;
+		ordersError = '';
+		try {
+			const res = await getAllOrders();
+			orders = res.items;
+		} catch (e) {
+			ordersError = errMsg(e, 'Gagal memuat pesanan.');
+		} finally {
+			ordersLoading = false;
+		}
+	}
+
+	async function changeOrderStatus(id: number, status: OrderStatus): Promise<void> {
+		try {
+			const updated = await setOrderStatus(id, status);
+			orders = orders.map((o) => (o.id === id ? updated : o));
+		} catch (e) {
+			alert(errMsg(e, 'Gagal mengubah status pesanan.'));
+		}
+	}
+
+	// Muat + pantau pesanan baru selama tab Pesanan dibuka.
+	$effect(() => {
+		if (tab === 'pesanan' && authed) {
+			void loadOrders();
+			const t = setInterval(() => void loadOrders(), 15000);
+			return () => clearInterval(t);
+		}
+	});
 
 	onMount(async () => {
 		try {
@@ -700,6 +773,10 @@
 							{:else if item.key === 'kategori'}
 								<span class="ml-auto rounded-md bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold text-white">
 									{stats.kategori}
+								</span>
+							{:else if item.key === 'pesanan' && newOrderCount > 0}
+								<span class="ml-auto rounded-md bg-amber-300 px-1.5 py-0.5 text-[10px] font-bold text-[#12151D]">
+									{newOrderCount}
 								</span>
 							{/if}
 						</button>
@@ -1324,6 +1401,118 @@
 							</div>
 						</div>
 					{/if}
+				{:else if tab === 'pesanan'}
+					<div class="flex flex-wrap items-center gap-2">
+						{#each [{ key: 'semua', label: 'Semua' }, { key: 'baru', label: 'Baru' }, { key: 'diproses', label: 'Diproses' }, { key: 'selesai', label: 'Selesai' }, { key: 'batal', label: 'Batal' }] as f (f.key)}
+							<button
+								type="button"
+								onclick={() => (ordersFilter = f.key as OrderFilter)}
+								class="inline-flex h-9 items-center rounded-full border px-3.5 text-xs font-semibold transition-all {ordersFilter === f.key
+									? 'border-white bg-white text-[#12151D]'
+									: 'border-white/15 text-white/60 hover:bg-white/10 hover:text-white'}"
+							>
+								{f.label}
+							</button>
+						{/each}
+						<button type="button" onclick={() => void loadOrders()} disabled={ordersLoading} class="{btnOutline} ml-auto h-9">
+							<RotateCcw size={14} class={ordersLoading ? 'animate-spin' : ''} />
+							Muat ulang
+						</button>
+					</div>
+					{#if ordersError}
+						<p class="mt-3 rounded-xl border border-red-400/30 bg-red-500/10 px-4 py-2.5 text-sm text-red-200">{ordersError}</p>
+					{/if}
+					{#if newOrderCount > 0}
+						<p class="mt-3 rounded-xl border border-amber-300/30 bg-amber-400/10 px-4 py-2.5 text-sm font-medium text-amber-200">
+							Ada {newOrderCount} pesanan baru menunggu diproses.
+						</p>
+					{/if}
+
+					<div class="{cardCls} mt-4 overflow-hidden">
+						<div class="overflow-x-auto">
+							<table class="w-full min-w-[820px] text-left text-sm">
+								<thead>
+									<tr class="border-b border-white/10 text-xs tracking-wider text-white/60 uppercase">
+										<th class="px-4 py-3 font-medium">Kode / Waktu</th>
+										<th class="px-4 py-3 font-medium">Pembeli</th>
+										<th class="px-4 py-3 font-medium">Isi</th>
+										<th class="px-4 py-3 font-medium">Total</th>
+										<th class="px-4 py-3 font-medium">Status</th>
+										<th class="px-4 py-3 text-right font-medium">Aksi</th>
+									</tr>
+								</thead>
+								<tbody>
+									{#each visibleOrders as o (o.id)}
+										<tr class="border-b border-white/10 last:border-0 hover:bg-white/5">
+											<td class="px-4 py-3">
+												<p class="font-mono font-bold tracking-wider text-white">{o.code}</p>
+												<p class="text-xs text-white/50">{fmtOrderTime(o.created_at)}</p>
+											</td>
+											<td class="px-4 py-3">
+												<p class="font-medium text-white">{o.buyer_name}</p>
+												<p class="text-xs text-white/50">{o.table_no ? `Meja ${o.table_no}` : 'Tanpa no. meja'}</p>
+											</td>
+											<td class="px-4 py-3 text-white/70">
+												{o.items.reduce((n, l) => n + l.qty, 0)} item
+												<button
+													type="button"
+													onclick={() => (expandedOrder = expandedOrder === o.id ? null : o.id)}
+													class="ml-1 underline decoration-dotted underline-offset-2 hover:text-white"
+												>
+													{expandedOrder === o.id ? 'tutup' : 'rincian'}
+												</button>
+											</td>
+											<td class="px-4 py-3 font-semibold text-white">{formatRupiah(o.total)}</td>
+											<td class="px-4 py-3">
+												<span class="inline-flex rounded-lg px-2 py-1 text-xs font-semibold {ORDER_CLS[o.status]}">
+													{ORDER_LABEL[o.status]}
+												</span>
+											</td>
+											<td class="px-4 py-3">
+												<div class="flex justify-end gap-1.5">
+													{#if o.status === 'baru'}
+														<button type="button" onclick={() => void changeOrderStatus(o.id, 'diproses')} class="{btnOutline} h-8 px-3 text-xs">Proses</button>
+														<button type="button" onclick={() => confirm(`Batalkan pesanan ${o.code}?`) && void changeOrderStatus(o.id, 'batal')} class="inline-flex h-8 items-center rounded-xl border border-red-400/30 bg-red-500/10 px-3 text-xs font-medium text-red-300 hover:bg-red-500/20">Batal</button>
+													{:else if o.status === 'diproses'}
+														<button type="button" onclick={() => void changeOrderStatus(o.id, 'selesai')} class="{btnPrimary} h-8 px-3 text-xs">Selesai</button>
+														<button type="button" onclick={() => confirm(`Batalkan pesanan ${o.code}?`) && void changeOrderStatus(o.id, 'batal')} class="inline-flex h-8 items-center rounded-xl border border-red-400/30 bg-red-500/10 px-3 text-xs font-medium text-red-300 hover:bg-red-500/20">Batal</button>
+													{:else}
+														<span class="text-xs text-white/30">—</span>
+													{/if}
+												</div>
+											</td>
+										</tr>
+										{#if expandedOrder === o.id}
+											<tr class="border-b border-white/10 bg-white/5">
+												<td colspan="6" class="px-4 py-3">
+													<ul class="space-y-1.5">
+														{#each o.items as item (item.id)}
+															<li class="flex items-center gap-2.5 text-sm">
+																<img src={resolveImage(item.image ?? '')} alt="" width="32" height="32" loading="lazy" class="h-8 w-8 rounded-lg object-cover" />
+																<span class="flex-1 text-white/80"><span class="font-bold text-white">{item.qty}x</span> {item.name}</span>
+																<span class="font-semibold text-white">{formatRupiah(item.qty * item.price)}</span>
+															</li>
+														{/each}
+													</ul>
+													{#if o.note}
+														<p class="mt-2 text-xs text-white/50">Catatan: {o.note}</p>
+													{/if}
+												</td>
+											</tr>
+										{/if}
+									{/each}
+								</tbody>
+							</table>
+						</div>
+						{#if visibleOrders.length === 0 && !ordersLoading}
+							<p class="px-4 py-8 text-center text-sm text-white/50">
+								{ordersFilter === 'semua' ? 'Belum ada pesanan masuk.' : 'Tidak ada pesanan pada filter ini.'}
+							</p>
+						{/if}
+					</div>
+					<p class="mt-3 text-sm text-white/60">
+						Daftar terpantau otomatis tiap 15 detik. Status pesanan langsung terlihat pembeli di halaman Pesanan Saya.
+					</p>
 				{:else}
 					<div class="{cardCls} p-6">
 						<h2 class="font-heading text-lg font-semibold text-white">Teks & Kontak Landing Page</h2>

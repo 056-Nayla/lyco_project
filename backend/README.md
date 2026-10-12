@@ -44,6 +44,10 @@ Akun awal dari `.env`: `ADMIN_USERNAME` / `ADMIN_PASSWORD` (default `admin` / `l
 | GET | `/api/settings` | — | settings landing page |
 | PUT | `/api/settings` | admin | partial update |
 | POST | `/api/settings/reset` | admin | kembalikan ke bawaan |
+| POST | `/api/orders` | — | buat pesanan (nama, sesi, meja, catatan, items; total dihitung server) |
+| GET | `/api/orders/mine?session=` | — | pesanan milik satu sesi pembeli |
+| GET | `/api/orders?status=` | admin | semua pesanan |
+| PATCH | `/api/orders/:id/status` | admin | `{status: baru/diproses/selesai/batal}` |
 | POST | `/api/uploads` | admin | form `image` (JPG/PNG/WebP ≤ 2MB) → `{url}` |
 | DELETE | `/api/uploads/:filename` | admin | hapus file upload |
 

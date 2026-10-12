@@ -16,7 +16,7 @@
 		<!-- Text -->
 		<div class="mx-auto w-full max-w-xl text-center lg:mx-0 lg:text-left">
 			<img
-				src="https://ugc.production.linktr.ee/e63288cb-ba96-4e67-82ce-e6a63f3aee3c_IMG-7525.jpeg?io=true&size=avatar-v3_0"
+				src="/logo-lyco.jpg"
 				alt="Logo LYCO"
 				width="96"
 				height="96"

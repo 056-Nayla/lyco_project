@@ -1,6 +1,16 @@
 <script lang="ts">
-	import { MessageCircle, Minus, Plus, ShoppingBasket, Trash2, X } from '@lucide/svelte';
-	import { resolveImage } from '#lib/api.js';
+	import { goto } from '$app/navigation';
+	import {
+		ArrowLeft,
+		CheckCircle2,
+		MessageCircle,
+		Minus,
+		Plus,
+		ShoppingBasket,
+		Trash2,
+		X
+	} from '@lucide/svelte';
+	import { ApiError, createOrder, resolveImage, type Order } from '#lib/api.js';
 	import { formatRupiah } from '#lib/data/products.js';
 	import {
 		cart,
@@ -13,7 +23,34 @@
 		removeLine,
 		setQty
 	} from '#lib/data/cartStore.svelte.js';
+	import {
+		getBuyerName,
+		getBuyerSession,
+		loadMyOrders,
+		setBuyerName
+	} from '#lib/data/orderStore.svelte.js';
 	import { site } from '#lib/data/settingsStore.svelte.js';
+
+	type Step = 'cart' | 'form' | 'done';
+	let step = $state<Step>('cart');
+	let buyerName = $state('');
+	let tableNo = $state('');
+	let note = $state('');
+	let formError = $state('');
+	let submitting = $state(false);
+	let lastOrder = $state<Order | null>(null);
+
+	const inputCls =
+		'h-10 w-full rounded-xl border border-white/15 bg-[#0F1319] px-3 text-sm text-white placeholder:text-white/30 focus:border-white/50 focus:outline-none';
+
+	function startCheckout(): void {
+		buyerName = getBuyerName();
+		tableNo = '';
+		note = '';
+		formError = '';
+		lastOrder = null;
+		step = 'form';
+	}
 
 	function waNumber(): string {
 		const fromHref = (site.current.phoneHref ?? '').replace(/\D/g, '');
@@ -22,18 +59,86 @@
 		return raw.startsWith('0') ? `62${raw.slice(1)}` : raw;
 	}
 
-	function checkoutWA(): void {
-		if (cart.lines.length === 0) return;
+	/** Fallback lama: kirim rincian langsung via WhatsApp tanpa simpan pesanan. */
+	function checkoutWA(code?: string): void {
+		if (cart.lines.length === 0 && !code) return;
 		const lines = cart.lines.map(
 			(l, i) => `${i + 1}. ${l.qty}x ${l.name} — ${formatRupiah(l.qty * l.price)}`
 		);
 		const msg = [
 			'Halo Lyco! Saya mau pesan:',
+			...(code ? [`Kode pesanan: ${code}`] : []),
 			...lines,
 			`Total: ${formatRupiah(getCartTotal())}`,
 			'Terima kasih.'
 		].join('\n');
 		window.open(`https://wa.me/${waNumber()}?text=${encodeURIComponent(msg)}`, '_blank');
+	}
+
+	function waForOrder(order: Order): void {
+		const lines = order.items.map(
+			(l, i) => `${i + 1}. ${l.qty}x ${l.name} — ${formatRupiah(l.qty * l.price)}`
+		);
+		const msg = [
+			`Halo Lyco! Saya ${order.buyer_name} (kode ${order.code}):`,
+			...lines,
+			`Total: ${formatRupiah(order.total)}`,
+			order.table_no ? `Meja: ${order.table_no}` : '',
+			'Terima kasih.'
+		]
+			.filter(Boolean)
+			.join('\n');
+		window.open(`https://wa.me/${waNumber()}?text=${encodeURIComponent(msg)}`, '_blank');
+	}
+
+	/** Buat pesanan ke backend, terikat sesi pembeli perangkat ini. */
+	async function submitOrder(): Promise<void> {
+		if (!buyerName.trim()) {
+			formError = 'Nama pemesan wajib diisi.';
+			return;
+		}
+		if (cart.lines.length === 0) {
+			formError = 'Keranjang masih kosong.';
+			return;
+		}
+		formError = '';
+		submitting = true;
+		try {
+			const order = await createOrder({
+				buyer_name: buyerName.trim(),
+				buyer_session: getBuyerSession(),
+				table_no: tableNo.trim(),
+				note: note.trim(),
+				items: cart.lines.map((l) => ({
+					id: l.id,
+					name: l.name,
+					price: l.price,
+					qty: l.qty,
+					image: l.image,
+					category: l.category
+				}))
+			});
+			setBuyerName(buyerName.trim());
+			clearCart();
+			lastOrder = order;
+			step = 'done';
+			void loadMyOrders();
+		} catch (e) {
+			if (e instanceof ApiError && e.status === 0) {
+				// Backend mati: tetap bisa pesan langsung via WhatsApp.
+				checkoutWA();
+			} else {
+				formError = e instanceof ApiError ? e.message : 'Gagal membuat pesanan.';
+			}
+		} finally {
+			submitting = false;
+		}
+	}
+
+	function closeAndReset(): void {
+		closeCart();
+		step = 'cart';
+		lastOrder = null;
 	}
 </script>
 
@@ -58,7 +163,7 @@
 		<button
 			type="button"
 			aria-label="Tutup keranjang"
-			onclick={closeCart}
+			onclick={closeAndReset}
 			class="absolute inset-0 bg-black/60"
 		></button>
 		<aside
@@ -76,7 +181,7 @@
 				</h2>
 				<button
 					type="button"
-					onclick={closeCart}
+					onclick={closeAndReset}
 					aria-label="Tutup keranjang"
 					class="rounded-lg p-1.5 text-white/60 hover:bg-white/10 hover:text-white"
 				>
@@ -84,18 +189,117 @@
 				</button>
 			</div>
 
-			{#if cart.lines.length === 0}
+			{#if step === 'done' && lastOrder}
+				<div class="flex flex-1 flex-col items-center justify-center gap-2 overflow-y-auto p-8 text-center">
+					<CheckCircle2 size={48} class="text-emerald-300" />
+					<p class="font-heading text-lg font-semibold text-white">Pesanan diterima!</p>
+					<p class="text-sm text-white/60">
+						Tunjukkan kode ini ke kasir atau lacak statusnya di halaman Pesanan Saya.
+					</p>
+					<p class="mt-2 rounded-2xl border border-white/15 bg-white/5 px-6 py-3 font-mono text-2xl font-bold tracking-widest text-white">
+						{lastOrder.code}
+					</p>
+					<p class="text-sm text-white/60">
+						{lastOrder.items.reduce((n, l) => n + l.qty, 0)} item • {formatRupiah(lastOrder.total)}
+					</p>
+					<button
+						type="button"
+						onclick={() => {
+							closeAndReset();
+							void goto('/pesanan');
+						}}
+						class="btn-lyco-solid mt-4 inline-flex h-11 w-full items-center justify-center text-sm font-semibold"
+					>
+						Lacak Pesanan Saya
+					</button>
+					<button
+						type="button"
+						onclick={() => lastOrder && waForOrder(lastOrder)}
+						class="btn-lyco mt-2 inline-flex h-11 w-full items-center justify-center gap-2 text-sm font-semibold"
+					>
+						<MessageCircle size={17} />
+						Kirim juga via WhatsApp
+					</button>
+					<button
+						type="button"
+						onclick={closeAndReset}
+						class="mt-1 inline-flex h-10 w-full items-center justify-center text-sm font-medium text-white/50 hover:text-white"
+					>
+						Kembali belanja
+					</button>
+				</div>
+			{:else if cart.lines.length === 0}
 				<div class="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
 					<ShoppingBasket size={40} class="text-white/25" />
 					<p class="font-semibold text-white">Keranjang masih kosong</p>
 					<p class="text-sm text-white/60">Yuk tambah menu favoritmu dulu.</p>
 					<button
 						type="button"
-						onclick={closeCart}
+						onclick={closeAndReset}
 						class="btn-lyco-solid mt-3 inline-flex h-10 items-center px-5 text-sm font-semibold"
 					>
 						Lihat Menu
 					</button>
+				</div>
+			{:else if step === 'form'}
+				<div class="flex-1 overflow-y-auto px-5 py-4">
+					<button
+						type="button"
+						onclick={() => (step = 'cart')}
+						class="inline-flex items-center gap-1.5 text-sm font-medium text-white/60 hover:text-white"
+					>
+						<ArrowLeft size={15} />
+						Kembali ke keranjang
+					</button>
+					<h3 class="mt-3 font-heading text-base font-semibold text-white">Data Pemesan</h3>
+					<p class="mt-1 text-sm text-white/60">
+						Pesanan terikat ke perangkat ini — lacak di halaman Pesanan Saya.
+					</p>
+					<div class="mt-4 flex flex-col gap-3.5">
+						<div>
+							<label for="co-name" class="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.14em] text-white/50">Nama pemesan</label>
+							<input
+								id="co-name"
+								bind:value={buyerName}
+								placeholder="cth. Nayla"
+								autocomplete="name"
+								class={inputCls}
+							/>
+						</div>
+						<div>
+							<label for="co-table" class="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.14em] text-white/50">No. meja <span class="normal-case text-white/30">(opsional)</span></label>
+							<input id="co-table" bind:value={tableNo} placeholder="cth. A5" class={inputCls} />
+						</div>
+						<div>
+							<label for="co-note" class="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.14em] text-white/50">Catatan <span class="normal-case text-white/30">(opsional)</span></label>
+							<textarea
+								id="co-note"
+								rows="2"
+								bind:value={note}
+								placeholder="cth. es sedikit, sambal dipisah"
+								class="w-full rounded-xl border border-white/15 bg-[#0F1319] px-3 py-2.5 text-sm text-white placeholder:text-white/30 focus:border-white/50 focus:outline-none"
+							></textarea>
+						</div>
+						{#if formError}
+							<p class="text-sm text-red-300">{formError}</p>
+						{/if}
+						<button
+							type="button"
+							onclick={submitOrder}
+							disabled={submitting}
+							class="btn-lyco-solid inline-flex h-11 w-full items-center justify-center text-sm font-semibold disabled:opacity-50"
+						>
+							{submitting ? 'Membuat pesanan…' : `Buat Pesanan — ${formatRupiah(getCartTotal())}`}
+						</button>
+						<button
+							type="button"
+							onclick={() => checkoutWA()}
+							class="inline-flex h-10 w-full items-center justify-center gap-2 text-sm font-medium text-white/50 hover:text-white"
+						>
+							<MessageCircle size={15} />
+							atau pesan langsung via WhatsApp
+						</button>
+					</div>
 				</div>
 			{:else}
 				<ul class="flex-1 space-y-3 overflow-y-auto px-5 py-4">
@@ -155,11 +359,10 @@
 					</div>
 					<button
 						type="button"
-						onclick={checkoutWA}
+						onclick={startCheckout}
 						class="btn-lyco-solid mt-3 inline-flex h-11 w-full items-center justify-center gap-2 text-sm font-semibold"
 					>
-						<MessageCircle size={17} />
-						Pesan via WhatsApp
+						Checkout — {formatRupiah(getCartTotal())}
 					</button>
 					<button
 						type="button"

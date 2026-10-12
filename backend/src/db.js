@@ -44,6 +44,21 @@ export function openDatabase(dbPath = config.dbPath) {
 			data TEXT NOT NULL,
 			updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 		);
+		CREATE TABLE IF NOT EXISTS orders (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			code TEXT UNIQUE NOT NULL,
+			buyer_name TEXT NOT NULL,
+			buyer_session TEXT NOT NULL,
+			table_no TEXT NOT NULL DEFAULT '',
+			note TEXT NOT NULL DEFAULT '',
+			items TEXT NOT NULL,
+			total INTEGER NOT NULL,
+			status TEXT NOT NULL DEFAULT 'baru',
+			created_at TEXT NOT NULL DEFAULT (datetime('now')),
+			updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+		);
+		CREATE INDEX IF NOT EXISTS idx_orders_session ON orders(buyer_session);
+		CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
 	`);
 	return db;
 }
@@ -58,6 +73,29 @@ export function rowToProduct(row) {
 		image: row.image ?? '',
 		category: row.category,
 		featured: row.featured === 1
+	};
+}
+
+export function rowToOrder(row) {
+	if (!row) return null;
+	let items = [];
+	try {
+		items = JSON.parse(row.items ?? '[]');
+	} catch {
+		items = [];
+	}
+	return {
+		id: row.id,
+		code: row.code,
+		buyer_name: row.buyer_name,
+		buyer_session: row.buyer_session,
+		table_no: row.table_no ?? '',
+		note: row.note ?? '',
+		items,
+		total: row.total,
+		status: row.status,
+		created_at: row.created_at,
+		updated_at: row.updated_at
 	};
 }
 

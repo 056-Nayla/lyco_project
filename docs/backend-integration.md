@@ -68,3 +68,15 @@ VITE_API_URL=http://localhost:3001
 - Hapus kategori ditolak 409 kalau masih dipakai produk.
 - `GET /api/stats` = angka dashboard admin (total, kategori, unggulan, kosong).
 - `POST */reset` = tombol "Reset ke Bawaan" di admin.
+
+## 5. Sesi pemesanan antar pengguna + halaman detail
+
+- Tiap browser dapat ID sesi pembeli (`localStorage lyco:buyer:session`).
+  Checkout (`POST /api/orders`) mengikat pesanan ke sesi itu — harga dihitung
+  ulang dari DB agar tidak bisa dimanipulasi. Status: `baru → diproses →
+  selesai / batal`.
+- Pembeli melacak di `/pesanan` (auto-refresh 10 detik, hanya pesanan sesinya).
+- Admin mengelola di tab **Pesanan** (`GET /api/orders` + `PATCH
+  /api/orders/:id/status`, auto-refresh 15 detik + badge pesanan baru).
+- Detail produk di `/menu/[id]` (`GET /api/products/:id`, fallback katalog
+  lokal + produk terkait se-kategori).

@@ -7,6 +7,7 @@ import { openDatabase, rowToProduct, seedDatabase } from './db.js';
 import { errorHandler } from './middleware/http.js';
 import { authRoutes } from './routes/auth.js';
 import { categoryRoutes } from './routes/categories.js';
+import { orderRoutes } from './routes/orders.js';
 import { productRoutes } from './routes/products.js';
 import { settingsRoutes } from './routes/settings.js';
 import { uploadRoutes } from './routes/uploads.js';
@@ -48,6 +49,7 @@ export function createApp({ dbPath } = {}) {
 	app.use('/api/products', productRoutes(db));
 	app.use('/api/categories', categoryRoutes(db));
 	app.use('/api/settings', settingsRoutes(db));
+	app.use('/api/orders', orderRoutes(db));
 	app.use('/api/uploads', uploadRoutes());
 
 	app.use((_req, res) => res.status(404).json({ error: 'Endpoint tidak ditemukan.' }));

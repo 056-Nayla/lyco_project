@@ -140,3 +140,71 @@ describe('settings', () => {
 		assert.equal(updated.body.heroTitle, 'LYCO TEST');
 	});
 });
+
+describe('orders', () => {
+	let orderId;
+	let session = 'test-session-123';
+
+	it('buat pesanan tanpa nama -> 400', async () => {
+		const res = await api.post('/api/orders').send({
+			buyer_name: '',
+			buyer_session: session,
+			items: [{ id: 1, name: 'X', price: 1, qty: 1 }]
+		});
+		assert.equal(res.status, 400);
+	});
+
+	it('buat pesanan valid -> 201 + total dari DB', async () => {
+		const list = await api.get('/api/products?limit=200');
+		const a = list.body.items[0];
+		const b = list.body.items[4];
+		const res = await api.post('/api/orders').send({
+			buyer_name: 'Budi',
+			buyer_session: session,
+			table_no: 'A5',
+			note: 'Es sedikit',
+			items: [
+				{ id: a.id, name: 'Coba Manipulasi', price: 1, qty: 2 },
+				{ id: b.id, name: b.name, price: 1, qty: 1 }
+			]
+		});
+		assert.equal(res.status, 201);
+		assert.match(res.body.code, /^LYCO-[0-9A-F]{6}$/);
+		assert.equal(res.body.status, 'baru');
+		// harga harus dari DB, bukan dari client (price: 1 diabaikan)
+		assert.equal(res.body.total, a.price * 2 + b.price);
+		assert.equal(res.body.items[0].name, a.name);
+		orderId = res.body.id;
+	});
+
+	it('mine mengembalikan pesanan sesi tsb', async () => {
+		const res = await api.get(`/api/orders/mine?session=${session}`);
+		assert.equal(res.status, 200);
+		assert.ok(res.body.items.some((o) => o.id === orderId));
+	});
+
+	it('list admin tanpa token -> 401, dengan token -> 200', async () => {
+		const anon = await api.get('/api/orders');
+		assert.equal(anon.status, 401);
+		const authed = await api
+			.get('/api/orders')
+			.set('Authorization', `Bearer ${token}`);
+		assert.equal(authed.status, 200);
+		assert.ok(authed.body.total >= 1);
+	});
+
+	it('ubah status -> diproses', async () => {
+		const res = await api
+			.patch(`/api/orders/${orderId}/status`)
+			.set('Authorization', `Bearer ${token}`)
+			.send({ status: 'diproses' });
+		assert.equal(res.status, 200);
+		assert.equal(res.body.status, 'diproses');
+
+		const bad = await api
+			.patch(`/api/orders/${orderId}/status`)
+			.set('Authorization', `Bearer ${token}`)
+			.send({ status: 'ngaco' });
+		assert.equal(bad.status, 400);
+	});
+});

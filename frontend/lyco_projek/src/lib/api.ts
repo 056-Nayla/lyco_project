@@ -223,3 +223,55 @@ export const uploadImageApi = (file: File) => {
 	form.append('image', file);
 	return apiUpload<{ url: string }>('/api/uploads', form);
 };
+
+// ── Pesanan (sesi pembeli antar pengguna) ───────────────────────────
+export type OrderStatus = 'baru' | 'diproses' | 'selesai' | 'batal';
+export type OrderItemInput = {
+	id: number;
+	name: string;
+	price: number;
+	qty: number;
+	image?: string;
+	category?: string;
+};
+export type Order = {
+	id: number;
+	code: string;
+	buyer_name: string;
+	buyer_session: string;
+	table_no: string;
+	note: string;
+	items: (OrderItemInput & { price: number; qty: number })[];
+	total: number;
+	status: OrderStatus;
+	created_at: string;
+	updated_at: string;
+};
+export type CreateOrderInput = {
+	buyer_name: string;
+	buyer_session: string;
+	table_no?: string;
+	note?: string;
+	items: OrderItemInput[];
+};
+
+/** Buat pesanan baru (publik — checkout keranjang). Total dihitung ulang server. */
+export const createOrder = (data: CreateOrderInput) =>
+	api<Order>('/api/orders', { method: 'POST', body: JSON.stringify(data) });
+
+/** Pesanan milik satu sesi pembeli (publik — halaman "Pesanan Saya"). */
+export const getMyOrders = (session: string, limit = 20) =>
+	api<{ items: Order[] }>(
+		`/api/orders/mine?session=${encodeURIComponent(session)}&limit=${limit}`
+	);
+
+/** Semua pesanan (admin). */
+export const getAllOrders = (status?: OrderStatus) =>
+	api<{ total: number; items: Order[] }>(`/api/orders${status ? `?status=${status}` : ''}`);
+
+/** Ubah status pesanan (admin). */
+export const setOrderStatus = (id: number, status: OrderStatus) =>
+	api<Order>(`/api/orders/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) });
+
+/** Detail satu produk (halaman detail). */
+export const getProductById = (id: number) => api<Product>(`/api/products/${id}`);

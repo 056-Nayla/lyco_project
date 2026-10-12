@@ -58,3 +58,37 @@ export const settingsSchema = z
 		hoursWeekendTime: z.string().max(60).optional()
 	})
 	.refine((v) => Object.keys(v).length > 0, { message: 'Minimal satu field settings.' });
+
+export const ORDER_STATUSES = ['baru', 'diproses', 'selesai', 'batal'];
+
+const orderItemSchema = z.object({
+	id: z.number().int().positive('ID produk harus positif.'),
+	name: z.string().trim().min(1).max(120),
+	price: z.number().int().min(0).max(100_000_000),
+	qty: z.number().int().min(1, 'Qty minimal 1.').max(99, 'Qty maksimal 99.'),
+	image: z.string().trim().max(500).default(''),
+	category: z.string().trim().max(60).default('')
+});
+
+export const createOrderSchema = z.object({
+	buyer_name: z.string().trim().min(1, 'Nama pemesan wajib diisi.').max(80),
+	buyer_session: z.string().trim().min(1, 'Sesi pembeli wajib diisi.').max(100),
+	table_no: z.string().trim().max(20).default(''),
+	note: z.string().trim().max(300).default(''),
+	items: z.array(orderItemSchema).min(1, 'Keranjang masih kosong.').max(50, 'Maksimal 50 baris item.')
+});
+
+export const mineOrdersQuerySchema = z.object({
+	session: z.string().trim().min(1, 'Sesi pembeli wajib diisi.').max(100),
+	limit: z.coerce.number().int().min(1).max(50).default(20)
+});
+
+export const adminOrdersQuerySchema = z.object({
+	status: z.enum(ORDER_STATUSES).optional(),
+	limit: z.coerce.number().int().min(1).max(100).default(50),
+	offset: z.coerce.number().int().min(0).default(0)
+});
+
+export const updateOrderStatusSchema = z.object({
+	status: z.enum(ORDER_STATUSES)
+});

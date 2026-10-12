@@ -268,15 +268,24 @@
 								<h2 class="font-bold text-white">{product.name}</h2>
 								<p class="mt-1 line-clamp-2 text-sm text-white/70">{product.description}</p>
 								<p class="mt-3 font-extrabold text-white">{formatRupiah(product.price)}</p>
-								<button
-									type="button"
-									onclick={() => addToCart(product)}
-									aria-label="Tambah {product.name} ke keranjang"
-									class="btn-lyco-solid mt-4 inline-flex h-10 items-center justify-center gap-1.5 text-sm font-semibold"
-								>
-									<Plus size={16} strokeWidth={2.5} />
-									Tambah
-								</button>
+								<div class="mt-4 flex items-center gap-2">
+									<button
+										type="button"
+										onclick={() => addToCart(product)}
+										aria-label="Tambah {product.name} ke keranjang"
+										class="btn-lyco-solid inline-flex h-10 flex-1 items-center justify-center gap-1.5 text-sm font-semibold"
+									>
+										<Plus size={16} strokeWidth={2.5} />
+										Tambah
+									</button>
+									<a
+										href="/menu/{product.id}"
+										aria-label="Lihat detail {product.name}"
+										class="btn-lyco inline-flex h-10 items-center justify-center px-4 text-sm font-semibold"
+									>
+										Detail
+									</a>
+								</div>
 							</div>
 						</article>
 					{/each}
