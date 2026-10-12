@@ -208,3 +208,77 @@ describe('orders', () => {
 		assert.equal(bad.status, 400);
 	});
 });
+
+describe('tables', () => {
+	it('list bawaan 8 meja', async () => {
+		const res = await api.get('/api/tables');
+		assert.equal(res.status, 200);
+		assert.equal(res.body.items.length, 8);
+		assert.ok(res.body.items.some((t) => t.code === '1'));
+	});
+
+	it('CRUD meja + validasi kode', async () => {
+		const bad = await api
+			.post('/api/tables')
+			.set('Authorization', `Bearer ${token}`)
+			.send({ code: 'A 5!' });
+		assert.equal(bad.status, 400);
+
+		const created = await api
+			.post('/api/tables')
+			.set('Authorization', `Bearer ${token}`)
+			.send({ code: '9', name: 'Teras' });
+		assert.equal(created.status, 201);
+		assert.ok(created.body.items.some((t) => t.code === '9'));
+
+		const dup = await api
+			.post('/api/tables')
+			.set('Authorization', `Bearer ${token}`)
+			.send({ code: '9' });
+		assert.equal(dup.status, 409);
+
+		const renamed = await api
+			.put('/api/tables/9')
+			.set('Authorization', `Bearer ${token}`)
+			.send({ code: '10' });
+		assert.equal(renamed.status, 200);
+		assert.ok(renamed.body.items.some((t) => t.code === '10'));
+
+		const off = await api
+			.put('/api/tables/10')
+			.set('Authorization', `Bearer ${token}`)
+			.send({ active: false });
+		assert.equal(off.body.items.find((t) => t.code === '10').active, false);
+
+		const gone = await api
+			.delete('/api/tables/10')
+			.set('Authorization', `Bearer ${token}`);
+		assert.equal(gone.status, 200);
+		assert.ok(!gone.body.items.some((t) => t.code === '10'));
+	});
+
+	it('hapus meja terpakai pesanan aktif -> 409', async () => {
+		const created = await api.post('/api/orders').send({
+			buyer_name: 'Meja Test',
+			buyer_session: 'table-session-1',
+			table_no: '1',
+			items: [{ id: 1, name: 'X', price: 1, qty: 1 }]
+		});
+		assert.equal(created.status, 201);
+
+		const blocked = await api
+			.delete('/api/tables/1')
+			.set('Authorization', `Bearer ${token}`);
+		assert.equal(blocked.status, 409);
+
+		await api
+			.patch(`/api/orders/${created.body.id}/status`)
+			.set('Authorization', `Bearer ${token}`)
+			.send({ status: 'selesai' });
+
+		const ok = await api
+			.delete('/api/tables/1')
+			.set('Authorization', `Bearer ${token}`);
+		assert.equal(ok.status, 200);
+	});
+});

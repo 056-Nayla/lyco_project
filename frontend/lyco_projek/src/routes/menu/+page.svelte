@@ -1,9 +1,12 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { ArrowLeft, ChevronLeft, ChevronRight, Plus, Search, X } from '@lucide/svelte';
 	import Footer from '#lib/components/Footer.svelte';
 	import Navbar from '#lib/components/Navbar.svelte';
+	import { page as route } from '$app/state';
 	import { getProducts, resolveImage } from '#lib/api.js';
 	import { addToCart } from '#lib/data/cartStore.svelte.js';
+	import { clearTableChoice, dineIn, setTableChoice } from '#lib/data/tablesStore.svelte.js';
 	import { formatRupiah, type Product } from '#lib/data/products.js';
 	import { categoriesState } from '#lib/data/categoriesStore.svelte.js';
 	import { catalog } from '#lib/data/productsStore.svelte.js';
@@ -131,6 +134,12 @@
 		page = Math.min(Math.max(n, 1), totalPages);
 		gridEl?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 	}
+
+	onMount(() => {
+		// Hasil scan QR meja: /menu?meja=5 → ingat mejanya untuk checkout.
+		const m = route.url.searchParams.get('meja')?.trim() ?? '';
+		if (m && /^[A-Za-z0-9-]{1,10}$/.test(m)) setTableChoice(m);
+	});
 </script>
 
 <svelte:head>
@@ -189,6 +198,19 @@
 					<span class="ml-1 rounded-full bg-amber-400/15 px-2 py-0.5 text-xs font-semibold text-amber-200">lokal</span>
 				{/if}
 			</p>
+			{#if dineIn.code}
+				<p class="inline-flex w-fit items-center gap-2 rounded-full border border-emerald-300/30 bg-emerald-400/10 px-3.5 py-1.5 text-xs font-semibold text-emerald-200">
+					Dine-in • Meja {dineIn.code}
+					<button
+						type="button"
+						onclick={clearTableChoice}
+						aria-label="Lupakan meja {dineIn.code}"
+						class="rounded-full p-0.5 hover:bg-white/10"
+					>
+						<X size={13} />
+					</button>
+				</p>
+			{/if}
 		</div>
 
 		<div class="mt-4 flex flex-wrap gap-2" role="tablist" aria-label="Filter kategori menu">

@@ -92,3 +92,25 @@ export const adminOrdersQuerySchema = z.object({
 export const updateOrderStatusSchema = z.object({
 	status: z.enum(ORDER_STATUSES)
 });
+
+export const tableCodeSchema = z
+	.string()
+	.trim()
+	.min(1, 'Kode meja wajib diisi.')
+	.max(10, 'Kode meja maksimal 10 karakter.')
+	.regex(/^[A-Za-z0-9-]+$/, 'Kode meja hanya huruf, angka, dan strip.');
+
+export const createTableSchema = z.object({
+	code: tableCodeSchema,
+	name: z.string().trim().max(60).default('')
+});
+
+export const updateTableSchema = z.object({
+	code: tableCodeSchema.optional(),
+	name: z.string().trim().max(60).optional(),
+	active: z.boolean().optional()
+}).refine((v) => Object.keys(v).length > 0, { message: 'Minimal satu field meja.' });
+
+export const reorderTablesSchema = z.object({
+	order: z.array(z.string().trim().min(1)).min(1, 'Urutan wajib diisi.')
+});

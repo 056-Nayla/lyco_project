@@ -48,6 +48,12 @@ Akun awal dari `.env`: `ADMIN_USERNAME` / `ADMIN_PASSWORD` (default `admin` / `l
 | GET | `/api/orders/mine?session=` | — | pesanan milik satu sesi pembeli |
 | GET | `/api/orders?status=` | admin | semua pesanan |
 | PATCH | `/api/orders/:id/status` | admin | `{status: baru/diproses/selesai/batal}` |
+| GET | `/api/tables` | — | daftar meja (kode, nama, aktif) |
+| POST | `/api/tables` | admin | `{code, name}` |
+| PUT | `/api/tables/reorder` | admin | `{order:[kode...]}` harus lengkap |
+| PUT | `/api/tables/:code` | admin | rename/nama/aktif |
+| DELETE | `/api/tables/:code` | admin | ditolak 409 kalau dipakai pesanan aktif |
+| POST | `/api/tables/reset` | admin | kembalikan ke bawaan (1–8) |
 | POST | `/api/uploads` | admin | form `image` (JPG/PNG/WebP ≤ 2MB) → `{url}` |
 | DELETE | `/api/uploads/:filename` | admin | hapus file upload |
 

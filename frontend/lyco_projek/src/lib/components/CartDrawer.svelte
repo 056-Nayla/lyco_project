@@ -29,6 +29,7 @@
 		loadMyOrders,
 		setBuyerName
 	} from '#lib/data/orderStore.svelte.js';
+	import { dineIn } from '#lib/data/tablesStore.svelte.js';
 	import { site } from '#lib/data/settingsStore.svelte.js';
 
 	type Step = 'cart' | 'form' | 'done';
@@ -45,7 +46,7 @@
 
 	function startCheckout(): void {
 		buyerName = getBuyerName();
-		tableNo = '';
+		tableNo = dineIn.code;
 		note = '';
 		formError = '';
 		lastOrder = null;
@@ -268,7 +269,7 @@
 						</div>
 						<div>
 							<label for="co-table" class="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.14em] text-white/50">No. meja <span class="normal-case text-white/30">(opsional)</span></label>
-							<input id="co-table" bind:value={tableNo} placeholder="cth. A5" class={inputCls} />
+							<input id="co-table" bind:value={tableNo} placeholder="cth. 5" class={inputCls} />
 						</div>
 						<div>
 							<label for="co-note" class="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.14em] text-white/50">Catatan <span class="normal-case text-white/30">(opsional)</span></label>

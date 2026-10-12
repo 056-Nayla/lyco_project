@@ -275,3 +275,40 @@ export const setOrderStatus = (id: number, status: OrderStatus) =>
 
 /** Detail satu produk (halaman detail). */
 export const getProductById = (id: number) => api<Product>(`/api/products/${id}`);
+
+// ── Meja & QR ───────────────────────────────────────────────────────
+export type TableInfo = { code: string; name: string; active: boolean };
+
+/** Daftar meja (publik). */
+export const getTables = () => api<{ items: TableInfo[] }>('/api/tables');
+
+/** Tambah meja (admin). */
+export const createTableApi = (code: string, name = '') =>
+	api<{ items: TableInfo[] }>('/api/tables', {
+		method: 'POST',
+		body: JSON.stringify({ code, name })
+	});
+
+/** Ubah meja: rename / nama / aktif (admin). */
+export const updateTableApi = (
+	code: string,
+	patch: { code?: string; name?: string; active?: boolean }
+) =>
+	api<{ items: TableInfo[] }>(`/api/tables/${encodeURIComponent(code)}`, {
+		method: 'PUT',
+		body: JSON.stringify(patch)
+	});
+
+/** Urutan tampil meja (admin). */
+export const reorderTablesApi = (order: string[]) =>
+	api<{ items: TableInfo[] }>('/api/tables/reorder', {
+		method: 'PUT',
+		body: JSON.stringify({ order })
+	});
+
+/** Hapus meja (admin, 409 kalau masih dipakai pesanan aktif). */
+export const deleteTableApi = (code: string) =>
+	api<{ items: TableInfo[] }>(`/api/tables/${encodeURIComponent(code)}`, { method: 'DELETE' });
+
+/** Reset meja ke bawaan (admin). */
+export const resetTablesApi = () => api<{ items: TableInfo[] }>('/api/tables/reset', { method: 'POST' });

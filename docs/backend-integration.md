@@ -80,3 +80,14 @@ VITE_API_URL=http://localhost:3001
   /api/orders/:id/status`, auto-refresh 15 detik + badge pesanan baru).
 - Detail produk di `/menu/[id]` (`GET /api/products/:id`, fallback katalog
   lokal + produk terkait se-kategori).
+
+## 6. Pemesanan meja via QR
+
+- Daftar meja di backend (`GET /api/tables`, bawaan 1–8) + CRUD admin
+  (`POST/PUT/DELETE /api/tables`, `PUT /reorder`, `POST /reset`). Hapus
+  ditolak 409 kalau meja masih dipakai pesanan aktif.
+- Tab **Meja & QR** di admin: tambah/rename/nonaktifkan meja, unduh QR PNG
+  per meja, salin link. QR berisi `{basis}/menu?meja=5` — basis default
+  origin saat ini, bisa diganti domain publik sebelum cetak.
+- Pengunjung scan QR → `/menu?meja=5` → badge "Dine-in • Meja 5" tampil dan
+  nomor meja otomatis terisi di form checkout (tersimpan per perangkat).

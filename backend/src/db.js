@@ -59,6 +59,13 @@ export function openDatabase(dbPath = config.dbPath) {
 		);
 		CREATE INDEX IF NOT EXISTS idx_orders_session ON orders(buyer_session);
 		CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
+		CREATE TABLE IF NOT EXISTS tables (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			code TEXT UNIQUE NOT NULL,
+			name TEXT NOT NULL DEFAULT '',
+			active INTEGER NOT NULL DEFAULT 1,
+			position INTEGER NOT NULL DEFAULT 0
+		);
 	`);
 	return db;
 }
@@ -75,6 +82,18 @@ export function rowToProduct(row) {
 		featured: row.featured === 1
 	};
 }
+
+export function rowToTable(row) {
+	if (!row) return null;
+	return {
+		code: row.code,
+		name: row.name ?? '',
+		active: row.active === 1
+	};
+}
+
+/** Meja bawaan saat DB masih kosong. */
+export const DEFAULT_TABLES = ['1', '2', '3', '4', '5', '6', '7', '8'];
 
 export function rowToOrder(row) {
 	if (!row) return null;
@@ -133,6 +152,12 @@ export function seedDatabase(db, { reset = false } = {}) {
 	const settingsCount = db.prepare('SELECT COUNT(*) AS n FROM settings WHERE id = 1').get().n;
 	if (settingsCount === 0) {
 		db.prepare('INSERT INTO settings (id, data) VALUES (1, ?)').run(JSON.stringify(defaultSettings));
+	}
+
+	const tableCount = db.prepare('SELECT COUNT(*) AS n FROM tables').get().n;
+	if (tableCount === 0) {
+		const insert = db.prepare('INSERT INTO tables (code, position) VALUES (?, ?)');
+		DEFAULT_TABLES.forEach((code, i) => insert.run(code, i));
 	}
 }
 

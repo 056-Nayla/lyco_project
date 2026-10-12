@@ -9,6 +9,7 @@
 		ChevronRight,
 		Clock,
 		LayoutDashboard,
+		Link2,
 		LogOut,
 		Menu as MenuIcon,
 		Pencil,
@@ -26,13 +27,24 @@
 		X
 	} from '@lucide/svelte';
 	import { formatRupiah, type Product } from '#lib/data/products.js';
+	import QRCode from 'qrcode';
+	import {
+		getQrBase,
+		refreshTables,
+		setQrBase,
+		setTables,
+		tableLink,
+		tablesState
+	} from '#lib/data/tablesStore.svelte.js';
 	import {
 		ApiError,
 		clearToken,
 		createCategoryApi,
+		createTableApi,
 		createProduct,
 		deleteCategoryApi,
 		deleteProductApi,
+		deleteTableApi,
 		getAllOrders,
 		getToken,
 		getUsername,
@@ -42,13 +54,16 @@
 		resetCategoriesApi,
 		resetProductsApi,
 		resetSettingsApi,
+		resetTablesApi,
 		resolveImage,
 		setOrderStatus,
 		updateProductApi,
 		updateSettingsApi,
+		updateTableApi,
 		uploadImageApi,
 		type Order,
-		type OrderStatus
+		type OrderStatus,
+		type TableInfo
 	} from '#lib/api.js';
 	import {
 		addCategory,
@@ -84,7 +99,7 @@
 	const FALLBACK_PASSWORD = 'lyco123';
 	const AUTH_KEY = 'lyco:admin:auth';
 
-	type Tab = 'dashboard' | 'menu' | 'kategori' | 'pesanan' | 'pengaturan';
+	type Tab = 'dashboard' | 'menu' | 'kategori' | 'pesanan' | 'meja' | 'pengaturan';
 	type DisabledKey = 'meja' | 'staf' | 'shift' | 'laporan';
 
 	let authed = $state(false);
@@ -102,7 +117,7 @@
 		{ icon: UtensilsCrossed, label: 'Menu', key: 'menu' },
 		{ icon: Tags, label: 'Kategori', key: 'kategori' },
 		{ icon: Receipt, label: 'Pesanan', key: 'pesanan' },
-		{ icon: QrCode, label: 'Meja & QR', key: 'meja', disabled: true },
+		{ icon: QrCode, label: 'Meja & QR', key: 'meja' },
 		{ icon: Users, label: 'Staf', key: 'staf', disabled: true },
 		{ icon: Clock, label: 'Shift', key: 'shift', disabled: true },
 		{ icon: BarChart3, label: 'Laporan', key: 'laporan', disabled: true },
@@ -126,6 +141,160 @@
 		kategori: categoriesState.items.length,
 		unggulan: catalog.items.filter((p) => p.featured).length,
 		kosong: categoriesState.items.filter((c) => countByCategory(c) === 0).length
+	});
+
+	// ── Meja & QR ────────────────────────────────────────────────
+	let qrMap = $state<Record<string, string>>({});
+	let qrBase = $state('');
+	let qrLoading = $state(false);
+	let mejaNotice = $state('');
+	let showMejaModal = $state(false);
+	let editingMeja = $state<string | null>(null);
+	let mejaCode = $state('');
+	let mejaName = $state('');
+	let mejaError = $state('');
+
+	async function genQrs(items: TableInfo[]): Promise<void> {
+		const entries = await Promise.all(
+			items.map(async (t) => {
+				try {
+					const url = tableLink(t.code, qrBase || undefined);
+					const dataUrl = await QRCode.toDataURL(url, { width: 256, margin: 1 });
+					return [t.code, dataUrl] as const;
+				} catch {
+					return [t.code, ''] as const;
+				}
+			})
+		);
+		qrMap = Object.fromEntries(entries);
+	}
+
+	async function loadMeja(): Promise<void> {
+		if (!getToken()) {
+			mejaNotice = 'Butuh login backend untuk mengelola meja.';
+			return;
+		}
+		qrLoading = true;
+		mejaNotice = '';
+		try {
+			const ok = await refreshTables();
+			if (!ok) mejaNotice = 'Gagal memuat meja. Periksa koneksi backend.';
+			else await genQrs(tablesState.items);
+		} finally {
+			qrLoading = false;
+		}
+	}
+
+	async function applyQrBase(): Promise<void> {
+		setQrBase(qrBase);
+		qrLoading = true;
+		try {
+			await genQrs(tablesState.items);
+			mejaNotice = `QR memakai basis ${qrBase || getQrBase()}.`;
+		} finally {
+			qrLoading = false;
+		}
+	}
+
+	function openMejaAdd(): void {
+		editingMeja = null;
+		mejaCode = '';
+		mejaName = '';
+		mejaError = '';
+		showMejaModal = true;
+	}
+
+	function openMejaEdit(t: TableInfo): void {
+		editingMeja = t.code;
+		mejaCode = t.code;
+		mejaName = t.name;
+		mejaError = '';
+		showMejaModal = true;
+	}
+
+	async function saveMeja(): Promise<void> {
+		if (!mejaCode.trim()) {
+			mejaError = 'Kode meja wajib diisi.';
+			return;
+		}
+		mejaError = '';
+		try {
+			busy = true;
+			const res =
+				editingMeja === null
+					? await createTableApi(mejaCode.trim(), mejaName.trim())
+					: await updateTableApi(editingMeja, { code: mejaCode.trim(), name: mejaName.trim() });
+			setTables(res.items);
+			await genQrs(res.items);
+			showMejaModal = false;
+		} catch (e) {
+			mejaError = errMsg(e, 'Gagal menyimpan meja.');
+		} finally {
+			busy = false;
+		}
+	}
+
+	async function removeMeja(code: string): Promise<void> {
+		if (!confirm(`Hapus meja "${code}"? QR yang sudah dicetak tidak akan berfungsi.`)) return;
+		try {
+			busy = true;
+			const res = await deleteTableApi(code);
+			setTables(res.items);
+			await genQrs(res.items);
+		} catch (e) {
+			alert(errMsg(e, 'Gagal menghapus meja.'));
+		} finally {
+			busy = false;
+		}
+	}
+
+	async function toggleMeja(t: TableInfo): Promise<void> {
+		try {
+			const res = await updateTableApi(t.code, { active: !t.active });
+			setTables(res.items);
+		} catch (e) {
+			alert(errMsg(e, 'Gagal mengubah status meja.'));
+		}
+	}
+
+	async function resetMeja(): Promise<void> {
+		if (!confirm('Kembalikan daftar meja ke bawaan (1–8)?')) return;
+		try {
+			busy = true;
+			const res = await resetTablesApi();
+			setTables(res.items);
+			await genQrs(res.items);
+		} catch (e) {
+			alert(errMsg(e, 'Gagal reset meja.'));
+		} finally {
+			busy = false;
+		}
+	}
+
+	function downloadQr(code: string): void {
+		const url = qrMap[code];
+		if (!url) return;
+		const a = document.createElement('a');
+		a.href = url;
+		a.download = `qr-meja-${code}.png`;
+		a.click();
+	}
+
+	async function copyMejaLink(code: string): Promise<void> {
+		try {
+			await navigator.clipboard.writeText(tableLink(code, qrBase || undefined));
+			mejaNotice = `Link Meja ${code} disalin ke clipboard.`;
+		} catch {
+			mejaNotice = 'Gagal menyalin link.';
+		}
+	}
+
+	// Muat meja + siapkan basis QR saat tab dibuka.
+	$effect(() => {
+		if (tab === 'meja' && authed) {
+			qrBase = getQrBase();
+			void loadMeja();
+		}
 	});
 
 	// ── Pesanan masuk (sesi pembeli) ─────────────────────────────────
@@ -1393,6 +1562,148 @@
 									<button
 										type="button"
 										onclick={() => (showCatModal = false)}
+										class="{btnOutline} w-full"
+									>
+										Batal
+									</button>
+								</div>
+							</div>
+						</div>
+					{/if}
+				{:else if tab === 'meja'}
+					<div class="flex flex-wrap gap-2">
+						<button type="button" onclick={openMejaAdd} class={btnPrimary}>
+							<Plus size={15} />
+							Tambah Meja
+						</button>
+						<button type="button" onclick={resetMeja} class={btnOutline}>
+							<RotateCcw size={15} />
+							Reset ke Bawaan
+						</button>
+					</div>
+
+					<div class="{cardCls} mt-4 p-5">
+						<h2 class="font-heading text-base font-semibold text-white">Basis URL QR</h2>
+						<p class="mt-1 text-sm text-white/60">
+							QR mengarah ke <code class="text-white/80">{tableLink('1', qrBase || undefined)}</code>.
+							Saat cetak untuk operasional, ganti dengan domain publik kafe lalu Terapkan.
+						</p>
+						<div class="mt-3 flex flex-col gap-2 sm:flex-row">
+							<input
+								bind:value={qrBase}
+								placeholder="https://lyco.id"
+								aria-label="Basis URL QR"
+								class="{inputCls} sm:flex-1"
+							/>
+							<button type="button" onclick={() => void applyQrBase()} disabled={qrLoading} class={btnOutline}>
+								Terapkan & Generate Ulang
+							</button>
+						</div>
+					</div>
+
+					{#if mejaNotice}
+						<p class="mt-3 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white/70">{mejaNotice}</p>
+					{/if}
+
+					<div class="{cardCls} mt-4 overflow-hidden">
+						<div class="overflow-x-auto">
+							<table class="w-full min-w-[760px] text-left text-sm">
+								<thead>
+									<tr class="border-b border-white/10 text-xs tracking-wider text-white/60 uppercase">
+										<th class="px-4 py-3 font-medium">QR</th>
+										<th class="px-4 py-3 font-medium">Kode</th>
+										<th class="px-4 py-3 font-medium">Nama</th>
+										<th class="px-4 py-3 font-medium">Status</th>
+										<th class="px-4 py-3 text-right font-medium">Aksi</th>
+									</tr>
+								</thead>
+								<tbody>
+									{#each tablesState.items as t (t.code)}
+										<tr class="border-b border-white/10 last:border-0 hover:bg-white/5">
+											<td class="px-4 py-3">
+												{#if qrMap[t.code]}
+													<img src={qrMap[t.code]} alt="QR Meja {t.code}" width="72" height="72" loading="lazy" class="h-[72px] w-[72px] rounded-lg bg-white p-1" />
+												{:else}
+													<span class="inline-block h-[72px] w-[72px] animate-pulse rounded-lg bg-white/10"></span>
+												{/if}
+											</td>
+											<td class="px-4 py-3 font-mono font-bold text-white">{t.code}</td>
+											<td class="px-4 py-3 text-white/60">{t.name || '—'}</td>
+											<td class="px-4 py-3">
+												<button
+													type="button"
+													onclick={() => void toggleMeja(t)}
+													title={t.active ? 'Nonaktifkan meja' : 'Aktifkan meja'}
+													class="inline-flex rounded-lg px-2 py-1 text-xs font-semibold {t.active
+														? 'bg-emerald-400/15 text-emerald-200'
+														: 'bg-white/10 text-white/50'}"
+												>
+													{t.active ? 'Aktif' : 'Nonaktif'}
+												</button>
+											</td>
+											<td class="px-4 py-3">
+												<div class="flex justify-end gap-1.5">
+													<button type="button" onclick={() => downloadQr(t.code)} aria-label="Unduh QR Meja {t.code}" title="Unduh QR PNG" class={iconBtn}>
+														<QrCode size={15} />
+													</button>
+													<button type="button" onclick={() => void copyMejaLink(t.code)} aria-label="Salin link Meja {t.code}" title="Salin link" class={iconBtn}>
+														<Link2 size={15} />
+													</button>
+													<button type="button" onclick={() => openMejaEdit(t)} aria-label="Edit Meja {t.code}" class={iconBtn}>
+														<Pencil size={15} />
+													</button>
+													<button
+														type="button"
+														onclick={() => void removeMeja(t.code)}
+														aria-label="Hapus Meja {t.code}"
+														class="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-red-400/30 bg-red-500/10 text-red-300 transition-colors hover:bg-red-500/20"
+													>
+														<Trash2 size={15} />
+													</button>
+												</div>
+											</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</div>
+						{#if tablesState.items.length === 0 && !qrLoading}
+							<p class="px-4 py-8 text-center text-sm text-white/50">Belum ada meja. Tambah atau reset ke bawaan.</p>
+						{/if}
+					</div>
+					<p class="mt-3 text-sm text-white/60">
+						Cetak QR dan tempel di tiap meja — pengunjung scan, pilih menu, nomor meja otomatis terisi saat checkout.
+					</p>
+
+					{#if showMejaModal}
+						<div
+							class="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4"
+							role="dialog"
+							aria-modal="true"
+							aria-label={editingMeja === null ? 'Tambah meja' : 'Edit meja'}
+						>
+							<div class="{cardCls} w-full max-w-sm p-6">
+								<h2 class="font-heading text-lg font-semibold text-white">
+									{editingMeja === null ? 'Tambah Meja Baru' : 'Edit Meja'}
+								</h2>
+								<div class="mt-4 flex flex-col gap-4">
+									<div class="flex flex-col gap-1.5">
+										<label for="m-code" class={labelCls}>Kode meja (cth. 9)</label>
+										<input id="m-code" bind:value={mejaCode} placeholder="9" class={inputCls} />
+									</div>
+									<div class="flex flex-col gap-1.5">
+										<label for="m-name" class={labelCls}>Nama area (opsional)</label>
+										<input id="m-name" bind:value={mejaName} placeholder="cth. Teras Depan" class={inputCls} />
+									</div>
+									{#if mejaError}
+										<p class="text-sm text-red-300">{mejaError}</p>
+									{/if}
+									<button type="button" onclick={() => void saveMeja()} disabled={busy} class="{btnPrimary} h-10 w-full">
+										{busy ? 'Menyimpan…' : editingMeja === null ? 'Tambah Meja' : 'Simpan Perubahan'}
+									</button>
+									<button
+										type="button"
+										onclick={() => (showMejaModal = false)}
 										class="{btnOutline} w-full"
 									>
 										Batal
