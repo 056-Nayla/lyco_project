@@ -47,6 +47,14 @@ export function loadCategories(): void {
 
 if (isBrowser) loadCategories();
 
+/** Timpa daftar kategori dari backend, sekaligus perbarui cache lokal. */
+export function setCategories(names: string[]): void {
+	if (names.length > 0) {
+		categoriesState.items = [...names];
+		persist();
+	}
+}
+
 export function addCategory(name: string): { ok: boolean; message?: string } {
 	const trimmed = name.trim();
 	if (!trimmed) return { ok: false, message: 'Nama kategori wajib diisi.' };

@@ -13,8 +13,8 @@ export const defaultSettings = {
 		'Jl. Syamsul Arifien, Rw. V, Polagan, Kec. Sampang, Kabupaten Sampang, Jawa Timur 60253',
 	mapsUrl:
 		'https://www.google.com/maps/search/?api=1&query=Jl.+Syamsul+Arifien,+Polagan,+Kec.+Sampang,+Kabupaten+Sampang,+Jawa+Timur+60253',
-	phoneDisplay: '+62 274 123 456',
-	phoneHref: 'tel:+62274123456',
+	phoneDisplay: '0889 8983 4160',
+	phoneHref: 'tel:+6288989834160',
 	email: 'halo@lyco.id',
 	hoursWeekdayLabel: 'Senin – Jumat',
 	hoursWeekdayTime: '08.00 – 22.00 WIB',

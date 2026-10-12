@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Menu, ShoppingBasket, X } from '@lucide/svelte';
+	import { getCartCount, openCart } from '#lib/data/cartStore.svelte.js';
 
 	let scrolled = $state(false);
 	let mobileOpen = $state(false);
@@ -60,18 +61,21 @@
 		</ul>
 
 		<div class="hidden items-center gap-3 lg:flex">
-			<a
-				href="/menu"
+			<button
+				type="button"
+				onclick={openCart}
 				aria-label="Lihat keranjang belanja"
 				class="btn-lyco relative flex h-11 w-11 items-center justify-center rounded-full"
 			>
 				<ShoppingBasket size={20} strokeWidth={1.8} />
-				<span
-					class="absolute -top-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-white px-1 text-[11px] font-bold text-[#1E2330]"
-				>
-					2
-				</span>
-			</a>
+				{#if getCartCount() > 0}
+					<span
+						class="absolute -top-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-white px-1 text-[11px] font-bold text-[#1E2330]"
+					>
+						{getCartCount()}
+					</span>
+				{/if}
+			</button>
 			<a
 				href="/menu"
 				class="btn-lyco-solid inline-flex h-11 items-center justify-center px-6 text-[15px] font-semibold"
@@ -82,18 +86,21 @@
 
 		<!-- Mobile actions -->
 		<div class="flex items-center gap-2 lg:hidden">
-			<a
-				href="/menu"
+			<button
+				type="button"
+				onclick={openCart}
 				aria-label="Lihat keranjang belanja"
 				class="btn-lyco relative flex h-10 w-10 items-center justify-center rounded-full"
 			>
 				<ShoppingBasket size={19} strokeWidth={1.8} />
-				<span
-					class="absolute -top-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-white px-1 text-[11px] font-bold text-[#1E2330]"
-				>
-					2
-				</span>
-			</a>
+				{#if getCartCount() > 0}
+					<span
+						class="absolute -top-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-white px-1 text-[11px] font-bold text-[#1E2330]"
+					>
+						{getCartCount()}
+					</span>
+				{/if}
+			</button>
 			<button
 				type="button"
 				onclick={() => (mobileOpen = !mobileOpen)}

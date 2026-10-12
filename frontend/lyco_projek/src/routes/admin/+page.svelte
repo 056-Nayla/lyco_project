@@ -5,6 +5,8 @@
 		ArrowLeft,
 		ArrowUp,
 		BarChart3,
+		ChevronLeft,
+		ChevronRight,
 		Clock,
 		LayoutDashboard,
 		LogOut,
@@ -13,21 +15,43 @@
 		Plus,
 		QrCode,
 		RotateCcw,
+		Search,
 		Settings,
 		Tags,
 		Trash2,
+		Upload,
 		Users,
 		UtensilsCrossed,
 		X
 	} from '@lucide/svelte';
 	import { formatRupiah, type Product } from '#lib/data/products.js';
 	import {
+		ApiError,
+		clearToken,
+		createCategoryApi,
+		createProduct,
+		deleteCategoryApi,
+		deleteProductApi,
+		getToken,
+		getUsername,
+		login as apiLogin,
+		reorderCategoriesApi,
+		renameCategoryApi,
+		resetCategoriesApi,
+		resetProductsApi,
+		resetSettingsApi,
+		resolveImage,
+		updateProductApi,
+		updateSettingsApi,
+		uploadImageApi
+	} from '#lib/api.js';
+	import {
 		addCategory,
 		categoriesState,
 		deleteCategory,
-		moveCategory,
 		renameCategory,
-		resetCategories
+		resetCategories,
+		setCategories
 	} from '#lib/data/categoriesStore.svelte.js';
 	import {
 		LOCAL_IMAGES,
@@ -37,26 +61,33 @@
 		deleteProduct,
 		renameCategoryProducts,
 		resetCatalog,
+		setCatalog,
 		updateProduct
 	} from '#lib/data/productsStore.svelte.js';
 	import {
+		applySettings,
 		defaultSettings,
 		resetSettings,
 		saveSettings,
 		site,
 		type SiteSettings
 	} from '#lib/data/settingsStore.svelte.js';
+	import { backendState, refreshAllFromBackend } from '#lib/data/sync.svelte.js';
 
-	// Ganti password ini sesuai kebutuhan (demo-grade: bukan keamanan server).
-	const ADMIN_PASSWORD = 'lyco123';
+	// Fallback lokal kalau backend mati: username/password bawaan.
+	const FALLBACK_USER = 'admin';
+	const FALLBACK_PASSWORD = 'lyco123';
 	const AUTH_KEY = 'lyco:admin:auth';
 
 	type Tab = 'dashboard' | 'menu' | 'kategori' | 'pengaturan';
 	type DisabledKey = 'meja' | 'staf' | 'shift' | 'laporan';
 
 	let authed = $state(false);
+	let username = $state('admin');
 	let password = $state('');
 	let loginError = $state('');
+	let busy = $state(false);
+	let notice = $state('');
 	// Desain sidebar ditiru dari https://rubys.trackbill.cloud/admin (default: dashboard)
 	let tab = $state<Tab>('dashboard');
 	let sidebarOpen = $state(false);
@@ -90,37 +121,68 @@
 		kosong: categoriesState.items.filter((c) => countByCategory(c) === 0).length
 	});
 
-	onMount(() => {
+	// Catatan: cek backend via `getToken() && backendState.ok` langsung di tiap aksi
+	// agar selalu baca token terbaru dari sessionStorage.
+
+	onMount(async () => {
 		try {
-			authed = sessionStorage.getItem(AUTH_KEY) === '1';
+			authed =
+				sessionStorage.getItem(AUTH_KEY) === '1' || !!sessionStorage.getItem('lyco:admin:token');
+			if (authed) {
+				const savedUser = getUsername();
+				if (savedUser) username = savedUser;
+			}
 		} catch {
 			authed = false;
 		}
+		// Selalu coba sinkron dari backend (publik maupun admin) — gagal = pakai lokal.
+		await refreshAllFromBackend();
 	});
 
-	function login(): void {
-		if (password === ADMIN_PASSWORD) {
+	async function login(): Promise<void> {
+		loginError = '';
+		notice = '';
+		const u = username.trim() || FALLBACK_USER;
+		if (!password) {
+			loginError = 'Password wajib diisi.';
+			return;
+		}
+		busy = true;
+		try {
+			const res = await apiLogin(u, password);
+			const { setToken } = await import('#lib/api.js');
+			setToken(res.token, res.username);
 			authed = true;
-			loginError = '';
 			password = '';
-			try {
-				sessionStorage.setItem(AUTH_KEY, '1');
-			} catch {
-				// abaikan
+			await refreshAllFromBackend();
+			notice = backendState.ok ? `Terhubung ke backend sebagai ${res.username}.` : '';
+		} catch (e) {
+			// Fallback: backend mati (status 0) + kredensial bawaan → mode lokal.
+			if (e instanceof ApiError && e.status === 0 && u === FALLBACK_USER && password === FALLBACK_PASSWORD) {
+				authed = true;
+				loginError = '';
+				password = '';
+				try {
+					sessionStorage.setItem(AUTH_KEY, '1');
+				} catch {
+					// abaikan
+				}
+				notice = 'Backend tidak terjangkau — mode lokal (perubahan hanya di browser ini).';
+			} else if (e instanceof ApiError) {
+				loginError = e.status === 0 ? 'Backend tidak bisa dihubungi. Jalankan `npm run dev` di folder backend.' : e.message;
+			} else {
+				loginError = 'Login gagal. Coba lagi.';
 			}
-		} else {
-			loginError = 'Password salah. Coba lagi.';
+		} finally {
+			busy = false;
 		}
 	}
 
 	function logout(): void {
 		authed = false;
 		sidebarOpen = false;
-		try {
-			sessionStorage.removeItem(AUTH_KEY);
-		} catch {
-			// abaikan
-		}
+		notice = '';
+		clearToken();
 	}
 
 	function goTab(t: Tab): void {
@@ -128,16 +190,61 @@
 		sidebarOpen = false;
 	}
 
+	function errMsg(e: unknown, fallback: string): string {
+		if (e instanceof ApiError) return e.message;
+		return fallback;
+	}
+
+	// ── Cari + pagination tabel menu admin (client-side dari katalog) ──
+	const MENU_PER_PAGE = 10;
+	let menuQuery = $state('');
+	let menuCat = $state('Semua');
+	let menuPage = $state(1);
+
+	const menuFiltered = $derived(
+		catalog.items.filter((p) => {
+			const okCat = menuCat === 'Semua' || p.category === menuCat;
+			const q = menuQuery.trim().toLowerCase();
+			const okQ =
+				!q ||
+				p.name.toLowerCase().includes(q) ||
+				(p.description ?? '').toLowerCase().includes(q) ||
+				p.category.toLowerCase().includes(q);
+			return okCat && okQ;
+		})
+	);
+	const menuTotalPages = $derived(Math.max(1, Math.ceil(menuFiltered.length / MENU_PER_PAGE)));
+	const menuSafePage = $derived(Math.min(Math.max(menuPage, 1), menuTotalPages));
+	const menuRows = $derived(
+		menuFiltered.slice((menuSafePage - 1) * MENU_PER_PAGE, menuSafePage * MENU_PER_PAGE)
+	);
+	const menuCatOptions = $derived(['Semua', ...categoriesState.items]);
+
+	// Kembali ke halaman 1 setiap filter berubah (tidak membaca menuPage → tidak loop).
+	$effect(() => {
+		void menuQuery;
+		void menuCat;
+		menuPage = 1;
+	});
+
+	function clampMenuPage(): void {
+		if (menuPage > menuTotalPages) menuPage = menuTotalPages;
+	}
+
 	// ── Form produk (tambah / edit) ──────────────────────────────────
 	let showModal = $state(false);
 	let editingId = $state<number | null>(null);
-	let imageMode = $state<'local' | 'url'>('local');
+	let imageMode = $state<'local' | 'url' | 'upload'>('local');
+	let uploadFile = $state<File | null>(null);
+	let previewUrl = $state<string | null>(null);
 	let form = $state({ name: '', category: 'Coffee', price: 0, description: '', image: LOCAL_IMAGES[0], featured: false });
 	let formError = $state('');
 
 	function openAdd(): void {
 		editingId = null;
 		imageMode = 'local';
+		uploadFile = null;
+		clearUploadPreview();
 		form = { name: '', category: categoriesState.items[0] ?? 'Coffee', price: 0, description: '', image: LOCAL_IMAGES[0], featured: false };
 		formError = '';
 		showModal = true;
@@ -145,7 +252,9 @@
 
 	function openEdit(p: Product): void {
 		editingId = p.id;
-		imageMode = LOCAL_IMAGES.includes(p.image) ? 'local' : 'url';
+		uploadFile = null;
+		clearUploadPreview();
+		imageMode = LOCAL_IMAGES.includes(p.image) ? 'local' : p.image.startsWith('/uploads/') ? 'upload' : 'url';
 		form = {
 			name: p.name,
 			category: p.category,
@@ -158,7 +267,28 @@
 		showModal = true;
 	}
 
-	function saveForm(): void {
+	function clearUploadPreview(): void {
+		if (previewUrl) {
+			URL.revokeObjectURL(previewUrl);
+			previewUrl = null;
+		}
+	}
+
+	function onFileChange(e: Event): void {
+		const input = e.currentTarget as HTMLInputElement;
+		const f = input.files?.[0] ?? null;
+		clearUploadPreview();
+		uploadFile = f;
+		if (f) previewUrl = URL.createObjectURL(f);
+	}
+
+	function closeModal(): void {
+		showModal = false;
+		uploadFile = null;
+		clearUploadPreview();
+	}
+
+	async function saveForm(): Promise<void> {
 		if (!form.name.trim()) {
 			formError = 'Nama produk wajib diisi.';
 			return;
@@ -167,7 +297,7 @@
 			formError = 'Harga harus lebih dari 0.';
 			return;
 		}
-		if (!form.image.trim()) {
+		if (imageMode !== 'upload' && !form.image.trim()) {
 			formError = 'Foto produk wajib diisi.';
 			return;
 		}
@@ -179,18 +309,79 @@
 			image: form.image.trim(),
 			featured: form.featured
 		};
-		if (editingId === null) addProduct(data);
-		else updateProduct(editingId, data);
-		showModal = false;
+		formError = '';
+		busy = true;
+		try {
+			// Upload dulu kalau admin memilih file baru (butuh backend + token)
+			if (imageMode === 'upload') {
+				if (uploadFile) {
+					if (!getToken()) throw new ApiError('Upload butuh login backend (bukan mode lokal).', 401);
+					const up = await uploadImageApi(uploadFile);
+					data.image = up.url;
+					form.image = up.url;
+				} else if (!data.image || data.image.startsWith('upload:')) {
+					// Mode upload tanpa file baru dan tanpa foto /uploads/ lama → tolak,
+					// jangan sampai placeholder "upload:..." tersimpan ke DB.
+					formError = 'Pilih file foto dulu atau ganti ke Foto Lyco / URL.';
+					return;
+				}
+				// Tanpa file baru tapi foto /uploads/ lama masih ada → pertahankan.
+			}
+			if (getToken() && backendState.ok) {
+				if (editingId === null) {
+					const created = await createProduct(data);
+					setCatalog([...catalog.items, created]);
+				} else {
+					const updated = await updateProductApi(editingId, data);
+					setCatalog(catalog.items.map((p) => (p.id === editingId ? updated : p)));
+				}
+			} else {
+				// Mode lokal (backend mati): tetap jalan seperti dulu
+				if (editingId === null) addProduct(data);
+				else updateProduct(editingId, data);
+			}
+			closeModal();
+		} catch (e) {
+			formError = errMsg(e, 'Gagal menyimpan produk.');
+		} finally {
+			busy = false;
+		}
 	}
 
-	function remove(id: number, name: string): void {
-		if (confirm(`Hapus "${name}" dari menu?`)) deleteProduct(id);
+	async function remove(id: number, name: string): Promise<void> {
+		if (!confirm(`Hapus "${name}" dari menu?`)) return;
+		if (getToken() && backendState.ok) {
+			try {
+				busy = true;
+				await deleteProductApi(id);
+				setCatalog(catalog.items.filter((p) => p.id !== id));
+				clampMenuPage();
+			} catch (e) {
+				alert(errMsg(e, 'Gagal menghapus produk.'));
+			} finally {
+				busy = false;
+			}
+		} else {
+			deleteProduct(id);
+			clampMenuPage();
+		}
 	}
 
-	function resetAll(): void {
-		if (confirm('Kembalikan semua produk ke bawaan PDF? Perubahan admin akan hilang.'))
+	async function resetAll(): Promise<void> {
+		if (!confirm('Kembalikan semua produk ke bawaan PDF? Perubahan admin akan hilang.')) return;
+		if (getToken() && backendState.ok) {
+			try {
+				busy = true;
+				await resetProductsApi();
+				await refreshAllFromBackend();
+			} catch (e) {
+				alert(errMsg(e, 'Gagal reset produk.'));
+			} finally {
+				busy = false;
+			}
+		} else {
 			resetCatalog();
+		}
 	}
 
 	// ── CRUD kategori ──────────────────────────────────────────────
@@ -213,9 +404,35 @@
 		showCatModal = true;
 	}
 
-	function saveCat(): void {
+	function applyCategoryItems(items: { name: string }[]): void {
+		setCategories(items.map((c) => c.name));
+	}
+
+	async function saveCat(): Promise<void> {
 		if (!catName.trim()) {
 			catError = 'Nama kategori wajib diisi.';
+			return;
+		}
+		catError = '';
+		if (getToken() && backendState.ok) {
+			try {
+				busy = true;
+				const res =
+					editingCat === null
+						? await createCategoryApi(catName.trim())
+						: await renameCategoryApi(editingCat, catName.trim());
+				applyCategoryItems(res.items);
+				if (editingCat !== null) {
+					// Backend sudah memindahkan produk; samakan cache lokal
+					renameCategoryProducts(editingCat, catName.trim());
+					await refreshAllFromBackend();
+				}
+				showCatModal = false;
+			} catch (e) {
+				catError = errMsg(e, 'Gagal menyimpan kategori.');
+			} finally {
+				busy = false;
+			}
 			return;
 		}
 		if (editingCat === null) {
@@ -236,7 +453,7 @@
 		showCatModal = false;
 	}
 
-	function removeCat(name: string): void {
+	async function removeCat(name: string): Promise<void> {
 		const used = countByCategory(name);
 		if (used > 0) {
 			alert(
@@ -244,12 +461,61 @@
 			);
 			return;
 		}
-		if (confirm(`Hapus kategori "${name}"?`)) deleteCategory(name);
+		if (!confirm(`Hapus kategori "${name}"?`)) return;
+		if (getToken() && backendState.ok) {
+			try {
+				busy = true;
+				const res = await deleteCategoryApi(name);
+				applyCategoryItems(res.items);
+			} catch (e) {
+				alert(errMsg(e, 'Gagal menghapus kategori.'));
+			} finally {
+				busy = false;
+			}
+		} else {
+			deleteCategory(name);
+		}
 	}
 
-	function resetCats(): void {
-		if (confirm('Kembalikan daftar kategori ke bawaan? Produk tidak ikut berubah.'))
+	async function moveCategoryBackend(name: string, direction: -1 | 1): Promise<void> {
+		const idx = categoriesState.items.findIndex((c) => c === name);
+		const target = idx + direction;
+		if (idx === -1 || target < 0 || target >= categoriesState.items.length) return;
+		const next = [...categoriesState.items];
+		const [moved] = next.splice(idx, 1);
+		next.splice(target, 0, moved);
+		if (getToken() && backendState.ok) {
+			try {
+				busy = true;
+				const res = await reorderCategoriesApi(next);
+				applyCategoryItems(res.items);
+			} catch (e) {
+				alert(errMsg(e, 'Gagal mengubah urutan kategori.'));
+			} finally {
+				busy = false;
+			}
+		} else {
+			// Mode lokal: geser + simpan ke localStorage
+			setCategories(next);
+		}
+	}
+
+	async function resetCats(): Promise<void> {
+		if (!confirm('Kembalikan daftar kategori ke bawaan? Produk tidak ikut berubah.')) return;
+		if (getToken() && backendState.ok) {
+			try {
+				busy = true;
+				const res = await resetCategoriesApi();
+				applyCategoryItems(res.items);
+				await refreshAllFromBackend();
+			} catch (e) {
+				alert(errMsg(e, 'Gagal reset kategori.'));
+			} finally {
+				busy = false;
+			}
+		} else {
 			resetCategories();
+		}
 	}
 
 	// ── Form pengaturan ──────────────────────────────────────────────
@@ -263,16 +529,43 @@
 		}
 	});
 
-	function saveSite(): void {
-		saveSettings(draft);
-		savedMsg = 'Pengaturan tersimpan dan langsung tampil di landing page.';
+	async function saveSite(): Promise<void> {
+		if (getToken() && backendState.ok) {
+			try {
+				busy = true;
+				const updated = await updateSettingsApi({ ...draft });
+				applySettings(updated);
+				draft = { ...updated };
+				savedMsg = 'Pengaturan tersimpan di backend dan langsung tampil di landing page.';
+			} catch (e) {
+				savedMsg = errMsg(e, 'Gagal menyimpan pengaturan.');
+			} finally {
+				busy = false;
+			}
+		} else {
+			saveSettings(draft);
+			savedMsg = 'Pengaturan tersimpan lokal (backend tidak terhubung).';
+		}
 	}
 
-	function resetSite(): void {
-		if (confirm('Kembalikan semua teks & kontak ke bawaan?')) {
+	async function resetSite(): Promise<void> {
+		if (!confirm('Kembalikan semua teks & kontak ke bawaan?')) return;
+		if (getToken() && backendState.ok) {
+			try {
+				busy = true;
+				const updated = await resetSettingsApi();
+				applySettings(updated);
+				draft = { ...updated };
+				savedMsg = 'Pengaturan dikembalikan ke bawaan (backend).';
+			} catch (e) {
+				savedMsg = errMsg(e, 'Gagal reset pengaturan.');
+			} finally {
+				busy = false;
+			}
+		} else {
 			resetSettings();
 			draft = { ...defaultSettings };
-			savedMsg = 'Pengaturan dikembalikan ke bawaan.';
+			savedMsg = 'Pengaturan dikembalikan ke bawaan (lokal).';
 		}
 	}
 
@@ -312,12 +605,25 @@
 				class="mt-5 flex flex-col gap-4"
 			>
 				<div class="flex flex-col gap-1.5 text-left">
+					<label for="admin-user" class={labelCls}>Username</label>
+					<input
+						id="admin-user"
+						type="text"
+						bind:value={username}
+						placeholder="admin"
+						autocomplete="username"
+						aria-label="Username admin"
+						class={inputCls}
+					/>
+				</div>
+				<div class="flex flex-col gap-1.5 text-left">
 					<label for="admin-pass" class={labelCls}>Password admin</label>
 					<input
 						id="admin-pass"
 						type="password"
 						bind:value={password}
 						placeholder="Password admin"
+						autocomplete="current-password"
 						aria-label="Password admin"
 						class={inputCls}
 					/>
@@ -325,9 +631,10 @@
 				{#if loginError}
 					<p class="text-sm text-red-300">{loginError}</p>
 				{/if}
-				<button type="submit" class="h-10 w-full rounded-xl bg-white font-semibold text-[#12151D] hover:bg-white/85">
-					Masuk
+				<button type="submit" disabled={busy} class="h-10 w-full rounded-xl bg-white font-semibold text-[#12151D] hover:bg-white/85 disabled:opacity-50">
+					{busy ? 'Menghubungkan…' : 'Masuk'}
 				</button>
+				<p class="text-xs text-white/40">Backend: http://localhost:3001 — kalau mati, pakai admin / lyco123 (mode lokal).</p>
 			</form>
 			<a
 				href="/"
@@ -504,6 +811,13 @@
 						</div>
 					</div>
 					<div class="flex items-center gap-2">
+						<span
+							title={backendState.ok ? 'Backend terhubung — data tersimpan permanen' : 'Backend tidak terjangkau — mode lokal'}
+							class="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold {backendState.ok ? 'bg-emerald-400/15 text-emerald-200' : 'bg-amber-400/15 text-amber-200'}"
+						>
+							<span class="size-1.5 rounded-full {backendState.ok ? 'bg-emerald-300' : 'bg-amber-300'}"></span>
+							{backendState.ok ? 'Backend: Terhubung' : 'Backend: Lokal'}
+						</span>
 						<a
 							href="/"
 							class="hidden items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm font-medium text-white/60 hover:text-white sm:inline-flex"
@@ -519,6 +833,9 @@
 			</header>
 
 			<main class="flex-1 p-4 sm:p-6">
+				{#if notice}
+					<p class="mb-4 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white/70">{notice}</p>
+				{/if}
 				{#if tab === 'dashboard'}
 					<div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
 						<div class="{cardCls} p-5">
@@ -591,6 +908,36 @@
 						</button>
 					</div>
 
+					<div class="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
+						<label class="relative block sm:max-w-xs sm:flex-1">
+							<span class="sr-only">Cari menu</span>
+							<Search
+								size={15}
+								class="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-white/40"
+							/>
+							<input
+								type="search"
+								bind:value={menuQuery}
+								placeholder="Cari nama / kategori…"
+								aria-label="Cari menu"
+								class="h-10 w-full rounded-xl border border-white/15 bg-[#0F1319] pr-3 pl-9 text-sm text-white placeholder:text-white/30 focus:border-white/50 focus:outline-none"
+							/>
+						</label>
+						<select
+							bind:value={menuCat}
+							aria-label="Filter kategori"
+							class="h-10 rounded-xl border border-white/15 bg-[#0F1319] px-3 text-sm text-white focus:border-white/50 focus:outline-none sm:w-48"
+						>
+							{#each menuCatOptions as c (c)}
+								<option value={c}>{c === 'Semua' ? 'Semua kategori' : c}</option>
+							{/each}
+						</select>
+						<p class="text-sm text-white/50 sm:ml-auto" role="status">
+							<span class="font-semibold text-white">{menuFiltered.length}</span> dari
+							{catalog.items.length} produk
+						</p>
+					</div>
+
 					<div class="{cardCls} mt-4 overflow-hidden">
 						<div class="overflow-x-auto">
 							<table class="w-full min-w-[760px] text-left text-sm">
@@ -605,11 +952,11 @@
 									</tr>
 								</thead>
 								<tbody>
-									{#each catalog.items as p (p.id)}
+									{#each menuRows as p (p.id)}
 										<tr class="border-b border-white/10 last:border-0 hover:bg-white/10">
 											<td class="px-4 py-3">
 												<img
-													src={p.image}
+													src={resolveImage(p.image)}
 													alt="Foto {p.name}"
 													width="64"
 													height="48"
@@ -654,7 +1001,38 @@
 								</tbody>
 							</table>
 						</div>
+						{#if menuFiltered.length === 0}
+							<p class="px-4 py-8 text-center text-sm text-white/50">
+								Tidak ada produk yang cocok dengan pencarian.
+							</p>
+						{/if}
 					</div>
+					{#if menuTotalPages > 1}
+						<div class="mt-3 flex items-center justify-between gap-2">
+							<p class="text-xs text-white/50">Halaman {menuSafePage} dari {menuTotalPages}</p>
+							<div class="flex items-center gap-1.5">
+								<button
+									type="button"
+									onclick={() => (menuPage = menuSafePage - 1)}
+									disabled={menuSafePage <= 1}
+									aria-label="Halaman sebelumnya"
+									class={iconBtn}
+								>
+									<ChevronLeft size={15} />
+								</button>
+								<span class="px-2 text-sm font-semibold text-white">{menuSafePage} / {menuTotalPages}</span>
+								<button
+									type="button"
+									onclick={() => (menuPage = menuSafePage + 1)}
+									disabled={menuSafePage >= menuTotalPages}
+									aria-label="Halaman berikutnya"
+									class={iconBtn}
+								>
+									<ChevronRight size={15} />
+								</button>
+							</div>
+						</div>
+					{/if}
 
 					{#if showModal}
 						<div
@@ -698,6 +1076,8 @@
 												onclick={() => {
 													imageMode = 'local';
 													form.image = LOCAL_IMAGES[0];
+													uploadFile = null;
+													clearUploadPreview();
 												}}
 												class="inline-flex h-10 flex-1 items-center justify-center rounded-xl border text-sm font-medium {imageMode ===
 												'local'
@@ -709,8 +1089,27 @@
 											<button
 												type="button"
 												onclick={() => {
+													imageMode = 'upload';
+													uploadFile = null;
+													clearUploadPreview();
+													if (!form.image.startsWith('/uploads/')) form.image = '';
+												}}
+												title="Upload ke backend (butuh login backend)"
+												class="inline-flex h-10 flex-1 items-center justify-center gap-1 rounded-xl border text-sm font-medium {imageMode ===
+												'upload'
+													? 'border-white bg-white text-[#12151D]'
+													: 'border-white/10 text-white/60'}"
+											>
+												<Upload size={14} />
+												Upload
+											</button>
+											<button
+												type="button"
+												onclick={() => {
 													imageMode = 'url';
 													form.image = '';
+													uploadFile = null;
+													clearUploadPreview();
 												}}
 												class="inline-flex h-10 flex-1 items-center justify-center rounded-xl border text-sm font-medium {imageMode ===
 												'url'
@@ -727,12 +1126,41 @@
 												{/each}
 											</select>
 											<img
-												src={form.image}
+												src={resolveImage(form.image)}
 												alt="Pratinjau foto produk"
 												width="240"
 												height="180"
 												class="mt-2.5 aspect-[4/3] w-60 rounded-xl object-cover"
 											/>
+										{:else if imageMode === 'upload'}
+											<input
+												type="file"
+												accept="image/jpeg,image/png,image/webp"
+												onchange={onFileChange}
+												aria-label="Pilih file foto (JPG/PNG/WebP maks 2MB)"
+												class="{inputCls} mt-2.5 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:px-3 file:py-1.5 file:text-xs file:font-semibold"
+											/>
+											<p class="mt-1.5 text-xs text-white/50">JPG/PNG/WebP maks 2MB — tersimpan di backend <code>/uploads</code>. Butuh status “Backend: Terhubung”.</p>
+											{#if uploadFile}
+												<p class="mt-1.5 text-xs font-medium text-white">File baru: {uploadFile.name}</p>
+											{/if}
+											{#if previewUrl}
+												<img
+													src={previewUrl}
+													alt="Pratinjau file baru"
+													width="240"
+													height="180"
+													class="mt-2.5 aspect-[4/3] w-60 rounded-xl object-cover"
+												/>
+											{:else if form.image && form.image.startsWith('/uploads/')}
+												<img
+													src={resolveImage(form.image)}
+													alt="Foto produk saat ini"
+													width="240"
+													height="180"
+													class="mt-2.5 aspect-[4/3] w-60 rounded-xl object-cover"
+												/>
+											{/if}
 										{:else}
 											<input
 												bind:value={form.image}
@@ -750,12 +1178,12 @@
 										<p class="text-sm text-red-300">{formError}</p>
 									{/if}
 									<div class="flex gap-2 pt-2">
-										<button type="button" onclick={saveForm} class="{btnPrimary} flex-1">
-											Simpan
+										<button type="button" onclick={saveForm} disabled={busy} class="{btnPrimary} flex-1">
+											{busy ? 'Menyimpan…' : 'Simpan'}
 										</button>
 										<button
 											type="button"
-											onclick={() => (showModal = false)}
+											onclick={closeModal}
 											class="{btnOutline} flex-1"
 										>
 											Batal
@@ -808,8 +1236,8 @@
 												<div class="flex justify-end gap-2">
 													<button
 														type="button"
-														onclick={() => moveCategory(cat, -1)}
-														disabled={idx === 0}
+														onclick={() => moveCategoryBackend(cat, -1)}
+														disabled={idx === 0 || busy}
 														aria-label="Naikkan {cat}"
 														class={iconBtn}
 													>
@@ -817,8 +1245,8 @@
 													</button>
 													<button
 														type="button"
-														onclick={() => moveCategory(cat, 1)}
-														disabled={idx === categoriesState.items.length - 1}
+														onclick={() => moveCategoryBackend(cat, 1)}
+														disabled={idx === categoriesState.items.length - 1 || busy}
 														aria-label="Turunkan {cat}"
 														class={iconBtn}
 													>

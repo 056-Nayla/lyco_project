@@ -27,6 +27,12 @@ export function loadCatalog(): void {
 	}
 }
 
+/** Timpa katalog dari backend, sekaligus perbarui cache lokal. */
+export function setCatalog(items: Product[]): void {
+	catalog.items = items;
+	persist();
+}
+
 if (isBrowser) loadCatalog();
 
 export function addProduct(data: Omit<Product, 'id'>): Product {
