@@ -47,9 +47,11 @@
 		deleteProductApi,
 		deleteTableApi,
 		getAllOrders,
+		getRole,
 		getToken,
 		getUsername,
 		getWaConfig,
+		getWeeklyReport,
 		login as apiLogin,
 		reorderCategoriesApi,
 		renameCategoryApi,
@@ -65,7 +67,9 @@
 		uploadImageApi,
 		type Order,
 		type OrderStatus,
-		type TableInfo
+		type TableInfo,
+		type AdminRole,
+		type WeeklyReport
 	} from '#lib/api.js';
 	import {
 		addCategory,
@@ -101,10 +105,11 @@
 	const FALLBACK_PASSWORD = 'lyco123';
 	const AUTH_KEY = 'lyco:admin:auth';
 
-	type Tab = 'dashboard' | 'menu' | 'kategori' | 'pesanan' | 'meja' | 'pengaturan';
-	type DisabledKey = 'meja' | 'staf' | 'shift' | 'laporan';
+	type Tab = 'dashboard' | 'menu' | 'kategori' | 'pesanan' | 'meja' | 'laporan' | 'pengaturan';
+	type DisabledKey = 'meja' | 'staf' | 'shift';
 
 	let authed = $state(false);
+	let role = $state<AdminRole | null>(null);
 	let username = $state('admin');
 	let password = $state('');
 	let loginError = $state('');
@@ -116,15 +121,20 @@
 
 	const navItems = [
 		{ icon: LayoutDashboard, label: 'Dashboard', key: 'dashboard' },
-		{ icon: UtensilsCrossed, label: 'Menu', key: 'menu' },
-		{ icon: Tags, label: 'Kategori', key: 'kategori' },
+		{ icon: UtensilsCrossed, label: 'Menu', key: 'menu', superOnly: true },
+		{ icon: Tags, label: 'Kategori', key: 'kategori', superOnly: true },
 		{ icon: Receipt, label: 'Pesanan', key: 'pesanan' },
-		{ icon: QrCode, label: 'Meja & QR', key: 'meja' },
+		{ icon: QrCode, label: 'Meja & QR', key: 'meja', superOnly: true },
 		{ icon: Users, label: 'Staf', key: 'staf', disabled: true },
 		{ icon: Clock, label: 'Shift', key: 'shift', disabled: true },
-		{ icon: BarChart3, label: 'Laporan', key: 'laporan', disabled: true },
-		{ icon: Settings, label: 'Pengaturan', key: 'pengaturan' }
+		{ icon: BarChart3, label: 'Laporan', key: 'laporan' },
+		{ icon: Settings, label: 'Pengaturan', key: 'pengaturan', superOnly: true }
 	] as const;
+
+	const isSuper = $derived(role === 'superadmin');
+	/** Tab CRUD (menu/kategori/meja/pengaturan) hanya untuk superadmin. */
+	const visibleNavItems = $derived(navItems.filter((i) => isSuper || !('superOnly' in i && i.superOnly)));
+	const CRUD_TABS: Tab[] = ['menu', 'kategori', 'meja', 'pengaturan'];
 
 	const subtitles: Record<Tab | DisabledKey, string> = {
 		dashboard: 'Ringkasan hari ini',
@@ -291,11 +301,13 @@
 		}
 	}
 
-	// Muat meja + siapkan basis QR saat tab dibuka.
+	// Muat meja + siapkan basis QR saat tab dibuka (pantau penghuni tiap 30 dtk).
 	$effect(() => {
 		if (tab === 'meja' && authed) {
 			qrBase = getQrBase();
 			void loadMeja();
+			const t = setInterval(() => void loadMeja(), 30000);
+			return () => clearInterval(t);
 		}
 	});
 
@@ -405,6 +417,49 @@
 		}
 	});
 
+	// ── Laporan penjualan mingguan ────────────────────────────────
+	let report = $state<WeeklyReport | null>(null);
+	let reportLoading = $state(false);
+	let reportError = $state('');
+
+	async function loadReport(): Promise<void> {
+		if (!getToken()) {
+			reportError = 'Butuh login backend untuk melihat laporan.';
+			return;
+		}
+		reportLoading = true;
+		reportError = '';
+		try {
+			report = await getWeeklyReport();
+		} catch (e) {
+			reportError = errMsg(e, 'Gagal memuat laporan.');
+		} finally {
+			reportLoading = false;
+		}
+	}
+
+	const reportMax = $derived(Math.max(1, ...((report?.days ?? []).map((d) => d.total))));
+	const reportDelta = $derived(
+		report && report.prevTotal > 0
+			? Math.round(((report.weekTotal - report.prevTotal) / report.prevTotal) * 100)
+			: null
+	);
+
+	function fmtShortDate(iso: string): string {
+		const [y, m, d] = iso.split('-').map(Number);
+		if (!y || !m || !d) return iso;
+		return `${d}/${m}`;
+	}
+
+	// Muat + pantau laporan selama tab Laporan dibuka (selalu update).
+	$effect(() => {
+		if (tab === 'laporan' && authed) {
+			void loadReport();
+			const t = setInterval(() => void loadReport(), 30000);
+			return () => clearInterval(t);
+		}
+	});
+
 	onMount(async () => {
 		try {
 			authed =
@@ -412,6 +467,8 @@
 			if (authed) {
 				const savedUser = getUsername();
 				if (savedUser) username = savedUser;
+				role = getRole() ?? 'admin';
+				if (role !== 'superadmin' && CRUD_TABS.includes(tab)) tab = 'pesanan';
 			}
 		} catch {
 			authed = false;
@@ -432,15 +489,17 @@
 		try {
 			const res = await apiLogin(u, password);
 			const { setToken } = await import('#lib/api.js');
-			setToken(res.token, res.username);
+			setToken(res.token, res.username, res.role ?? 'admin');
+			role = res.role ?? 'admin';
 			authed = true;
 			password = '';
 			await refreshAllFromBackend();
-			notice = backendState.ok ? `Terhubung ke backend sebagai ${res.username}.` : '';
+			notice = backendState.ok ? `Terhubung ke backend sebagai ${res.username} (${role}).` : '';
 		} catch (e) {
 			// Fallback: backend mati (status 0) + kredensial bawaan → mode lokal.
 			if (e instanceof ApiError && e.status === 0 && u === FALLBACK_USER && password === FALLBACK_PASSWORD) {
 				authed = true;
+				role = 'superadmin';
 				loginError = '';
 				password = '';
 				try {
@@ -461,12 +520,18 @@
 
 	function logout(): void {
 		authed = false;
+		role = null;
 		sidebarOpen = false;
 		notice = '';
 		clearToken();
 	}
 
 	function goTab(t: Tab): void {
+		if (CRUD_TABS.includes(t) && role !== 'superadmin') {
+			tab = 'pesanan';
+			sidebarOpen = false;
+			return;
+		}
 		tab = t;
 		sidebarOpen = false;
 	}
@@ -802,6 +867,7 @@
 	// ── Form pengaturan ──────────────────────────────────────────────
 	let draft = $state<SiteSettings>({ ...defaultSettings });
 	let savedMsg = $state('');
+	let qrisUploading = $state(false);
 
 	$effect(() => {
 		if (tab === 'pengaturan') {
@@ -809,6 +875,24 @@
 			savedMsg = '';
 		}
 	});
+
+	async function uploadQrisFile(file: File | undefined): Promise<void> {
+		if (!file) return;
+		if (!getToken()) {
+			savedMsg = 'Upload butuh login backend (bukan mode lokal).';
+			return;
+		}
+		qrisUploading = true;
+		try {
+			const up = await uploadImageApi(file);
+			draft.qrisImage = up.url;
+			savedMsg = 'QR QRIS terupload — klik Simpan Pengaturan agar tampil ke pelanggan.';
+		} catch (e) {
+			savedMsg = errMsg(e, 'Gagal mengupload QR QRIS.');
+		} finally {
+			qrisUploading = false;
+		}
+	}
 
 	async function saveSite(): Promise<void> {
 		if (getToken() && backendState.ok) {
@@ -952,7 +1036,7 @@
 
 			<nav class="flex-1 overflow-y-auto p-3">
 				<div class="flex flex-col gap-1">
-					{#each navItems as item (item.key)}
+					{#each visibleNavItems as item (item.key)}
 						{@const Icon = item.icon}
 						{@const active = tab === item.key}
 						{@const disabled = 'disabled' in item && item.disabled}
@@ -996,8 +1080,8 @@
 				<div class="flex items-center gap-3 rounded-xl px-3 py-2.5">
 					<img src="/logo-lyco.jpg" alt="Logo Lyco" width="32" height="32" class="size-8 rounded-lg border border-white/15 object-cover" />
 					<div class="flex-1">
-						<p class="text-sm font-medium text-white">Admin</p>
-						<p class="text-[10px] uppercase tracking-[0.18em] text-white/50">Shift: Pagi</p>
+						<p class="text-sm font-medium text-white">{username || 'Admin'}</p>
+						<p class="text-[10px] uppercase tracking-[0.18em] {role === 'superadmin' ? 'text-amber-300' : 'text-white/50'}">{role === 'superadmin' ? 'Superadmin' : 'Admin'}</p>
 					</div>
 					<button
 						type="button"
@@ -1036,7 +1120,7 @@
 			</div>
 			<nav class="flex-1 overflow-y-auto p-3">
 				<div class="flex flex-col gap-1">
-					{#each navItems as item (item.key)}
+					{#each visibleNavItems as item (item.key)}
 						{@const Icon = item.icon}
 						{@const active = tab === item.key}
 						{@const disabled = 'disabled' in item && item.disabled}
@@ -1060,8 +1144,8 @@
 				<div class="flex items-center gap-3 rounded-xl px-3 py-2.5">
 					<img src="/logo-lyco.jpg" alt="Logo Lyco" width="32" height="32" class="size-8 rounded-lg border border-white/15 object-cover" />
 					<div class="flex-1">
-						<p class="text-sm font-medium text-white">Admin</p>
-						<p class="text-[10px] uppercase tracking-[0.18em] text-white/50">Shift: Pagi</p>
+						<p class="text-sm font-medium text-white">{username || 'Admin'}</p>
+						<p class="text-[10px] uppercase tracking-[0.18em] {role === 'superadmin' ? 'text-amber-300' : 'text-white/50'}">{role === 'superadmin' ? 'Superadmin' : 'Admin'}</p>
 					</div>
 					<button
 						type="button"
@@ -1157,6 +1241,7 @@
 						<div class="{cardCls} p-5">
 							<h2 class="font-heading text-base font-semibold text-white">Kelola Cepat</h2>
 							<p class="mt-1 text-sm text-white/60">Aksi yang paling sering dipakai.</p>
+							{#if isSuper}
 							<div class="mt-4 flex flex-wrap gap-2">
 								<button type="button" onclick={() => goTab('menu')} class={btnPrimary}>
 									<Plus size={15} />
@@ -1167,6 +1252,18 @@
 									Kelola Kategori
 								</button>
 							</div>
+							{:else}
+							<div class="mt-4 flex flex-wrap gap-2">
+								<button type="button" onclick={() => goTab('pesanan')} class={btnPrimary}>
+									<Receipt size={15} />
+									Proses Pesanan
+								</button>
+								<button type="button" onclick={() => goTab('laporan')} class={btnOutline}>
+									<BarChart3 size={15} />
+									Lihat Laporan
+								</button>
+							</div>
+							{/if}
 						</div>
 						<div class="{cardCls} p-5">
 							<h2 class="font-heading text-base font-semibold text-white">Menu Terlaris</h2>
@@ -1667,6 +1764,14 @@
 												{/if}
 											</td>
 											<td class="px-4 py-3 font-mono font-bold text-white">{t.code}</td>
+											<td class="px-4 py-3">
+												{#if t.occupant}
+													<p class="font-medium text-white">{t.occupant.name}</p>
+													<p class="font-mono text-xs text-white/50">{t.occupant.code}</p>
+												{:else}
+													<span class="text-white/60">{t.name || '—'}</span>
+												{/if}
+											</td>
 											<td class="px-4 py-3 text-white/60">{t.name || '—'}</td>
 											<td class="px-4 py-3">
 												<button
@@ -1883,6 +1988,94 @@
 					<p class="mt-3 text-sm text-white/60">
 						Daftar terpantau otomatis tiap 15 detik. Status pesanan langsung terlihat pembeli di halaman Pesanan Saya.
 					</p>
+				{:else if tab === 'laporan'}
+					<div class="flex flex-wrap items-center gap-2">
+						<p class="text-sm text-white/60">
+							{#if report}
+								Minggu {fmtShortDate(report.weekStart)} – {fmtShortDate(report.weekEnd)} • dihitung live dari pesanan selesai
+							{:else}
+								Memuat laporan minggu berjalan…
+							{/if}
+						</p>
+						<button type="button" onclick={() => void loadReport()} disabled={reportLoading} class="{btnOutline} ml-auto h-9">
+							<RotateCcw size={14} class={reportLoading ? 'animate-spin' : ''} />
+							Muat ulang
+						</button>
+					</div>
+					{#if reportError}
+						<p class="mt-3 rounded-xl border border-red-400/30 bg-red-500/10 px-4 py-2.5 text-sm text-red-200">{reportError}</p>
+					{/if}
+					{#if report}
+						<div class="mt-4 grid grid-cols-2 gap-4 lg:grid-cols-4">
+							<div class="{cardCls} p-5">
+								<p class="text-xs font-medium text-white/60">Omzet Minggu Ini</p>
+								<p class="mt-1 font-heading text-2xl font-bold text-white">{formatRupiah(report.weekTotal)}</p>
+								{#if reportDelta !== null}
+									<p class="mt-1 text-xs font-semibold {reportDelta >= 0 ? 'text-emerald-300' : 'text-red-300'}">
+										{reportDelta >= 0 ? '▲' : '▼'} {Math.abs(reportDelta)}% vs minggu lalu
+									</p>
+								{:else}
+									<p class="mt-1 text-xs text-white/40">vs {formatRupiah(report.prevTotal)} minggu lalu</p>
+								{/if}
+							</div>
+							<div class="{cardCls} p-5">
+								<p class="text-xs font-medium text-white/60">Pesanan Selesai</p>
+								<p class="mt-1 font-heading text-2xl font-bold text-white">{report.weekCount}</p>
+								<p class="mt-1 text-xs text-white/40">{report.prevCount} minggu lalu</p>
+							</div>
+							<div class="{cardCls} p-5">
+								<p class="text-xs font-medium text-white/60">Rata-rata / Struk</p>
+								<p class="mt-1 font-heading text-2xl font-bold text-white">{formatRupiah(report.avgTicket)}</p>
+								<p class="mt-1 text-xs text-white/40">omzet ÷ pesanan</p>
+							</div>
+							<div class="{cardCls} p-5">
+								<p class="text-xs font-medium text-white/60">Menu Terlaris #1</p>
+								<p class="mt-1 truncate font-heading text-2xl font-bold text-white">{report.topItems[0]?.name ?? '—'}</p>
+								<p class="mt-1 text-xs text-white/40">{report.topItems[0] ? `${report.topItems[0].qty} terjual` : 'belum ada penjualan'}</p>
+							</div>
+						</div>
+
+						<div class="mt-4 grid gap-4 lg:grid-cols-2">
+							<div class="{cardCls} p-5">
+								<h2 class="font-heading text-base font-semibold text-white">Grafik Penjualan Harian</h2>
+								<p class="mt-1 text-sm text-white/60">Omzet pesanan selesai per hari (Rp).</p>
+								<div class="mt-4 flex h-48 items-end gap-2">
+									{#each report.days as d (d.date)}
+										<div class="flex min-w-0 flex-1 flex-col items-center gap-1.5">
+											<span class="text-[11px] font-semibold text-white/70">{d.total >= 1000 ? `${Math.round(d.total / 1000)}rb` : d.total}</span>
+											<div
+												class="w-full rounded-t-lg {d.total > 0 ? 'bg-white' : 'bg-white/10'}"
+												style="height: {Math.max(d.total > 0 ? 6 : 3, Math.round((d.total / reportMax) * 140))}px"
+												title="{d.label} {fmtShortDate(d.date)}: {formatRupiah(d.total)} ({d.count} pesanan)"
+											></div>
+											<span class="text-[11px] text-white/50">{d.label}</span>
+										</div>
+									{/each}
+								</div>
+							</div>
+							<div class="{cardCls} p-5">
+								<h2 class="font-heading text-base font-semibold text-white">Makanan & Minuman Terlaris</h2>
+								<p class="mt-1 text-sm text-white/60">Top 10 minggu ini berdasarkan item terjual.</p>
+								{#if report.topItems.length === 0}
+									<p class="mt-3 text-sm text-white/50">Belum ada penjualan selesai minggu ini.</p>
+								{:else}
+									<ul class="mt-3 space-y-2">
+										{#each report.topItems as item, i (item.name)}
+											<li class="flex items-center gap-3 rounded-xl bg-white/5 px-3 py-2 text-sm">
+												<span class="w-6 text-center font-heading font-bold {i < 3 ? 'text-amber-300' : 'text-white/40'}">{i + 1}</span>
+												<span class="min-w-0 flex-1 truncate font-medium text-white">{item.name}</span>
+												<span class="text-xs text-white/50">{item.qty}×</span>
+												<span class="font-semibold text-white">{formatRupiah(item.revenue)}</span>
+											</li>
+										{/each}
+									</ul>
+								{/if}
+							</div>
+						</div>
+					{/if}
+					<p class="mt-3 text-sm text-white/60">
+						Otomatis diperbarui tiap 30 detik dari data pesanan terbaru — berlaku untuk minggu ini dan minggu-minggu berikutnya.
+					</p>
 				{:else}
 					<div class="{cardCls} p-6">
 						<h2 class="font-heading text-lg font-semibold text-white">Teks & Kontak Landing Page</h2>
@@ -1959,7 +2152,38 @@
 								</div>
 							</div>
 						</div>
-						{#if savedMsg}
+							<h3 class="mt-6 font-heading text-base font-semibold text-white">Pembayaran QRIS</h3>
+						<p class="mt-1 text-sm text-white/60">
+							QR ini tampil ke pelanggan setelah checkout, sebelum tombol kirim via WA.
+						</p>
+						<div class="mt-3 grid gap-4 sm:grid-cols-2">
+							<div>
+								<label for="s-qrisname" class={labelCls}>Nama merchant QRIS</label>
+								<input id="s-qrisname" bind:value={draft.qrisMerchant} placeholder="LYCO Coffee and Place" class={inputCls} />
+							</div>
+							<div>
+								<label for="s-qrisimg" class={labelCls}>QR QRIS (path / URL)</label>
+								<input id="s-qrisimg" bind:value={draft.qrisImage} placeholder="/uploads/qris.jpg" class={inputCls} />
+							</div>
+							<div class="flex items-end gap-3 sm:col-span-2">
+								<label class="{btnOutline} cursor-pointer">
+									{qrisUploading ? 'Mengupload…' : 'Upload QR QRIS'}
+									<input
+										type="file"
+										accept="image/png,image/jpeg,image/webp"
+										class="hidden"
+										disabled={qrisUploading}
+										onchange={(e) => void uploadQrisFile(e.currentTarget.files?.[0])}
+									/>
+								</label>
+								{#if draft.qrisImage}
+									<img src={resolveImage(draft.qrisImage)} alt="Pratinjau QRIS" width="72" height="72" class="h-[72px] w-[72px] rounded-xl border border-white/15 bg-white object-contain p-1" />
+								{:else}
+									<span class="text-sm text-white/40">Belum ada QR terpasang.</span>
+								{/if}
+							</div>
+						</div>
+					{#if savedMsg}
 							<p class="mt-4 text-sm font-medium text-white">{savedMsg}</p>
 						{/if}
 						<div class="mt-4 flex flex-wrap gap-2">

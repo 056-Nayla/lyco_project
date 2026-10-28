@@ -19,13 +19,13 @@ export function authRoutes(db) {
 			if (!user || !ok) {
 				return res.status(401).json({ error: 'Username atau password salah.' });
 			}
-			const token = signToken({ sub: user.id, username: user.username });
-			return res.json({ token, username: user.username });
+			const token = signToken({ sub: user.id, username: user.username, role: user.role ?? 'admin' });
+			return res.json({ token, username: user.username, role: user.role ?? 'admin' });
 		})
 	);
 
 	r.get('/me', requireAuth, (req, res) => {
-		return res.json({ username: req.user.username });
+		return res.json({ username: req.user.username, role: req.user.role ?? 'admin' });
 	});
 
 	return r;

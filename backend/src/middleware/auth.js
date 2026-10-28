@@ -18,3 +18,14 @@ export function requireAuth(req, res, next) {
 		return res.status(401).json({ error: 'Token tidak valid atau kedaluwarsa. Login ulang.' });
 	}
 }
+
+/** Batasi ke peran tertentu (cth. requireRole('superadmin') untuk CRUD). */
+export function requireRole(...roles) {
+	return (req, res, next) => {
+		const role = req.user?.role ?? 'admin';
+		if (!roles.includes(role)) {
+			return res.status(403).json({ error: 'Akses ditolak: butuh peran superadmin.' });
+		}
+		return next();
+	};
+}

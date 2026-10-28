@@ -55,7 +55,9 @@ export const settingsSchema = z
 		hoursWeekdayLabel: z.string().max(60).optional(),
 		hoursWeekdayTime: z.string().max(60).optional(),
 		hoursWeekendLabel: z.string().max(60).optional(),
-		hoursWeekendTime: z.string().max(60).optional()
+		hoursWeekendTime: z.string().max(60).optional(),
+		qrisImage: z.string().max(500).optional(),
+		qrisMerchant: z.string().max(120).optional()
 	})
 	.refine((v) => Object.keys(v).length > 0, { message: 'Minimal satu field settings.' });
 

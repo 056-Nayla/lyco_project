@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { ah, validate } from '../middleware/http.js';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, requireRole } from '../middleware/auth.js';
 import {
 	createTableSchema,
 	reorderTablesSchema,
@@ -10,7 +10,27 @@ import { rowToTable } from '../db.js';
 
 function listTables(db) {
 	const rows = db.prepare('SELECT * FROM tables ORDER BY position ASC, id ASC').all();
-	return rows.map(rowToTable);
+	// Nama pelanggan yang sedang memakai tiap meja (pesanan aktif: baru/diproses).
+	// Terbaru per table_no; tanpa pesanan aktif → occupant null (meja kosong).
+	let active = [];
+	try {
+		active = db
+			.prepare(
+				`SELECT table_no, buyer_name, code, status FROM orders
+				 WHERE status IN ('baru', 'diproses') AND table_no <> ''
+				 ORDER BY id DESC`
+			)
+			.all();
+	} catch {
+		active = [];
+	}
+	const occupantByTable = new Map();
+	for (const o of active) {
+		if (!occupantByTable.has(o.table_no)) {
+			occupantByTable.set(o.table_no, { name: o.buyer_name, code: o.code, status: o.status });
+		}
+	}
+	return rows.map((t) => ({ ...rowToTable(t), occupant: occupantByTable.get(t.code) ?? null }));
 }
 
 export function tableRoutes(db) {
@@ -26,7 +46,7 @@ export function tableRoutes(db) {
 
 	r.post(
 		'/',
-		requireAuth,
+		requireAuth, requireRole('superadmin'),
 		validate(createTableSchema),
 		ah(async (req, res) => {
 			const code = req.body.code.trim();
@@ -47,7 +67,7 @@ export function tableRoutes(db) {
 	// Urutan tampil. Ditaruh SEBELUM '/:code' agar tidak tertelan param.
 	r.put(
 		'/reorder',
-		requireAuth,
+		requireAuth, requireRole('superadmin'),
 		validate(reorderTablesSchema),
 		ah(async (req, res) => {
 			const order = [...new Set(req.body.order.map((s) => s.trim()).filter(Boolean))];
@@ -65,7 +85,7 @@ export function tableRoutes(db) {
 
 	r.put(
 		'/:code',
-		requireAuth,
+		requireAuth, requireRole('superadmin'),
 		validate(updateTableSchema),
 		ah(async (req, res) => {
 			const oldCode = req.params.code;
@@ -94,7 +114,7 @@ export function tableRoutes(db) {
 
 	r.delete(
 		'/:code',
-		requireAuth,
+		requireAuth, requireRole('superadmin'),
 		ah(async (req, res) => {
 			const code = req.params.code;
 			const row = db.prepare('SELECT id FROM tables WHERE code = ?').get(code);
@@ -114,7 +134,7 @@ export function tableRoutes(db) {
 
 	r.post(
 		'/reset',
-		requireAuth,
+		requireAuth, requireRole('superadmin'),
 		ah(async (_req, res) => {
 			const { DEFAULT_TABLES } = await import('../db.js');
 			db.prepare('DELETE FROM tables').run();

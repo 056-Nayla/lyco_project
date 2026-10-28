@@ -6,6 +6,7 @@
 		MessageCircle,
 		Minus,
 		Plus,
+		QrCode,
 		ShoppingBasket,
 		Trash2,
 		X
@@ -34,7 +35,7 @@
 	import { dineIn } from '#lib/data/tablesStore.svelte.js';
 	import { site } from '#lib/data/settingsStore.svelte.js';
 
-	type Step = 'cart' | 'form' | 'done';
+	type Step = 'cart' | 'form' | 'qris' | 'done';
 	let step = $state<Step>('cart');
 	let buyerName = $state('');
 	let buyerPhone = $state('');
@@ -80,7 +81,7 @@
 		window.open(`https://wa.me/${waNumber()}?text=${encodeURIComponent(msg)}`, '_blank');
 	}
 
-	function waForOrder(order: Order): void {
+	function waForOrder(order: Order, paidQris = false): void {
 		const lines = order.items.map(
 			(l, i) => `${i + 1}. ${l.qty}x ${l.name} — ${formatRupiah(l.qty * l.price)}`
 		);
@@ -89,6 +90,7 @@
 			...lines,
 			`Total: ${formatRupiah(order.total)}`,
 			order.table_no ? `Meja: ${order.table_no}` : '',
+			paidQris ? 'Pembayaran: QRIS ✅ (bukti transfer saya kirim via chat ini)' : '',
 			'Terima kasih.'
 		]
 			.filter(Boolean)
@@ -141,7 +143,7 @@
 			setBuyerPhone(wa);
 			clearCart();
 			lastOrder = order;
-			step = 'done';
+			step = 'qris';
 			void loadMyOrders();
 		} catch (e) {
 			if (e instanceof ApiError && e.status === 0) {
@@ -246,6 +248,48 @@
 						class="mt-1 inline-flex h-10 w-full items-center justify-center text-sm font-medium text-white/50 hover:text-white"
 					>
 						Kembali belanja
+					</button>
+				</div>
+			{:else if step === 'qris' && lastOrder}
+				<div class="flex flex-1 flex-col items-center gap-2 overflow-y-auto p-6 text-center">
+					<QrCode size={40} class="text-white" />
+					<p class="font-heading text-lg font-semibold text-white">Bayar via QRIS</p>
+					<p class="text-sm text-white/60">
+						Scan kode di bawah sebesar <span class="font-bold text-white">{formatRupiah(lastOrder.total)}</span>
+						untuk pesanan <span class="font-mono font-bold text-white">{lastOrder.code}</span>
+					</p>
+					{#if site.current.qrisImage}
+						<img
+							src={resolveImage(site.current.qrisImage)}
+							alt="QRIS {site.current.qrisMerchant}"
+							width="240"
+							height="240"
+							class="mt-2 h-60 w-60 rounded-2xl border border-white/15 bg-white object-contain p-2"
+						/>
+						<p class="text-sm font-medium text-white/70">{site.current.qrisMerchant}</p>
+					{:else}
+						<p class="mt-2 w-full rounded-2xl border border-amber-300/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-200">
+							QRIS belum dipasang admin — tunjukkan kode pesanan ke kasir untuk bayar langsung.
+						</p>
+					{/if}
+					<p class="text-xs text-white/40">Bisa scan pakai GoPay, OVO, DANA, atau m-banking apa pun.</p>
+					<button
+						type="button"
+						onclick={() => {
+							if (lastOrder) waForOrder(lastOrder, true);
+							step = 'done';
+						}}
+						class="btn-lyco-solid mt-3 inline-flex h-11 w-full items-center justify-center gap-2 text-sm font-semibold"
+					>
+						<MessageCircle size={17} />
+						Saya Sudah Bayar — Kirim via WA
+					</button>
+					<button
+						type="button"
+						onclick={() => (step = 'done')}
+						class="inline-flex h-10 w-full items-center justify-center text-sm font-medium text-white/50 hover:text-white"
+					>
+						Bayar nanti, lacak pesanan dulu
 					</button>
 				</div>
 			{:else if cart.lines.length === 0}

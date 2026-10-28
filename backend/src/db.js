@@ -20,6 +20,7 @@ export function openDatabase(dbPath = config.dbPath) {
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			username TEXT UNIQUE NOT NULL,
 			password_hash TEXT NOT NULL,
+			role TEXT NOT NULL DEFAULT 'admin',
 			created_at TEXT NOT NULL DEFAULT (datetime('now'))
 		);
 		CREATE TABLE IF NOT EXISTS categories (
@@ -144,13 +145,26 @@ export function seedDatabase(db, { reset = false } = {}) {
 		db.exec('DELETE FROM products; DELETE FROM categories; DELETE FROM settings; DELETE FROM users;');
 	}
 
-	const userCount = db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
-	if (userCount === 0) {
-		const hash = bcrypt.hashSync(config.adminUsername === 'admin' ? config.adminPassword : config.adminPassword, 10);
-		db.prepare('INSERT INTO users (username, password_hash) VALUES (?, ?)').run(
-			config.adminUsername,
-			hash
-		);
+	const userCols = db.prepare('PRAGMA table_info(users)').all();
+	if (!userCols.some((c) => c.name === 'role')) {
+		db.exec("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'admin';");
+	}
+
+	const ensureUser = (username, password, role) => {
+		if (!username) return;
+		const exists = db.prepare('SELECT id FROM users WHERE username = ?').get(username);
+		if (!exists) {
+			const hash = bcrypt.hashSync(password, 10);
+			db.prepare('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)').run(
+				username,
+				hash,
+				role
+			);
+		}
+	};
+	ensureUser(config.adminUsername, config.adminPassword, 'admin');
+	if (config.superadminUsername && config.superadminUsername !== config.adminUsername) {
+		ensureUser(config.superadminUsername, config.superadminPassword, 'superadmin');
 	}
 
 	const catCount = db.prepare('SELECT COUNT(*) AS n FROM categories').get().n;

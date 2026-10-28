@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { ah, validate } from '../middleware/http.js';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, requireRole } from '../middleware/auth.js';
 import { settingsSchema } from '../schemas.js';
 import { readSettings, seedDatabase, writeSettings } from '../db.js';
 
@@ -16,7 +16,7 @@ export function settingsRoutes(db) {
 
 	r.put(
 		'/',
-		requireAuth,
+		requireAuth, requireRole('superadmin'),
 		validate(settingsSchema),
 		ah(async (req, res) => {
 			const merged = writeSettings(db, req.body);
@@ -26,7 +26,7 @@ export function settingsRoutes(db) {
 
 	r.post(
 		'/reset',
-		requireAuth,
+		requireAuth, requireRole('superadmin'),
 		ah(async (_req, res) => {
 			db.prepare('DELETE FROM settings WHERE id = 1').run();
 			seedDatabase(db);

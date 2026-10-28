@@ -12,7 +12,10 @@ export const API_BASE = RAW_BASE.replace(/\/+$/, '');
 
 const TOKEN_KEY = 'lyco:admin:token';
 const USER_KEY = 'lyco:admin:user';
+const ROLE_KEY = 'lyco:admin:role';
 const LEGACY_AUTH_KEY = 'lyco:admin:auth';
+
+export type AdminRole = 'admin' | 'superadmin';
 
 function isBrowser(): boolean {
 	return typeof window !== 'undefined' && typeof sessionStorage !== 'undefined';
@@ -27,11 +30,12 @@ export function getToken(): string | null {
 	}
 }
 
-export function setToken(token: string, username?: string): void {
+export function setToken(token: string, username?: string, role?: AdminRole): void {
 	if (!isBrowser()) return;
 	try {
 		sessionStorage.setItem(TOKEN_KEY, token);
 		if (username) sessionStorage.setItem(USER_KEY, username);
+		if (role) sessionStorage.setItem(ROLE_KEY, role);
 		// Tandai juga flag lama agar guard lama tetap lolos
 		sessionStorage.setItem(LEGACY_AUTH_KEY, '1');
 	} catch {
@@ -44,9 +48,20 @@ export function clearToken(): void {
 	try {
 		sessionStorage.removeItem(TOKEN_KEY);
 		sessionStorage.removeItem(USER_KEY);
+		sessionStorage.removeItem(ROLE_KEY);
 		sessionStorage.removeItem(LEGACY_AUTH_KEY);
 	} catch {
 		// abaikan
+	}
+}
+
+export function getRole(): AdminRole | null {
+	if (!isBrowser()) return null;
+	try {
+		const r = sessionStorage.getItem(ROLE_KEY);
+		return r === 'superadmin' || r === 'admin' ? r : null;
+	} catch {
+		return null;
 	}
 }
 
@@ -175,7 +190,7 @@ export const getSettings = () => api<SiteSettings>('/api/settings');
 export const getStats = () =>
 	api<{ total: number; kategori: number; unggulan: number; kosong: number }>('/api/stats');
 export const login = (username: string, password: string) =>
-	api<{ token: string; username: string }>('/api/auth/login', {
+	api<{ token: string; username: string; role: AdminRole }>('/api/auth/login', {
 		method: 'POST',
 		body: JSON.stringify({ username, password })
 	});
@@ -291,8 +306,29 @@ export const getWaConfig = () =>
 /** Detail satu produk (halaman detail). */
 export const getProductById = (id: number) => api<Product>(`/api/products/${id}`);
 
+export type WeeklyReport = {
+	weekStart: string;
+	weekEnd: string;
+	days: { date: string; label: string; total: number; count: number }[];
+	weekTotal: number;
+	weekCount: number;
+	avgTicket: number;
+	prevTotal: number;
+	prevCount: number;
+	topItems: { name: string; qty: number; revenue: number }[];
+};
+
+/** Laporan penjualan minggu berjalan (admin). Dihitung live di backend. */
+export const getWeeklyReport = () => api<WeeklyReport>('/api/orders/report/weekly');
+
 // ── Meja & QR ───────────────────────────────────────────────────────
-export type TableInfo = { code: string; name: string; active: boolean };
+export type TableInfo = {
+	code: string;
+	name: string;
+	active: boolean;
+	/** Pelanggan yang sedang memakai meja (pesanan aktif terbaru) — null = kosong. */
+	occupant?: { name: string; code: string; status: OrderStatus } | null;
+};
 
 /** Daftar meja (publik). */
 export const getTables = () => api<{ items: TableInfo[] }>('/api/tables');

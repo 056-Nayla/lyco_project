@@ -21,6 +21,8 @@ export const config = {
 	jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? '12h',
 	adminUsername: process.env.ADMIN_USERNAME ?? 'admin',
 	adminPassword: process.env.ADMIN_PASSWORD ?? 'lyco123',
+	superadminUsername: process.env.SUPERADMIN_USERNAME ?? 'superadmin',
+	superadminPassword: process.env.SUPERADMIN_PASSWORD ?? 'lyco-super-123',
 	dbPath: process.env.DB_PATH ? resolveMaybe(process.env.DB_PATH) : ':memory:',
 	uploadDir: resolveMaybe(process.env.UPLOAD_DIR ?? './uploads'),
 	maxUploadBytes: Number(process.env.MAX_UPLOAD_MB ?? 2) * 1024 * 1024,

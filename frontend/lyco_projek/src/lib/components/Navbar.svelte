@@ -1,6 +1,13 @@
 <script lang="ts">
-	import { Menu, ShoppingBasket, X } from '@lucide/svelte';
+	import { LogOut, Menu, ShoppingBasket, X } from '@lucide/svelte';
+	import { goto } from '$app/navigation';
 	import { getCartCount, openCart } from '#lib/data/cartStore.svelte.js';
+	import { customerAuth, logoutCustomer } from '#lib/data/customerAuth.svelte.js';
+
+	function logout(): void {
+		logoutCustomer();
+		void goto('/', { replaceState: true });
+	}
 
 	let scrolled = $state(false);
 	let mobileOpen = $state(false);
@@ -63,6 +70,20 @@
 		</ul>
 
 		<div class="hidden items-center gap-3 lg:flex">
+			{#if customerAuth.customer}
+				<span class="max-w-36 truncate text-sm font-medium text-white/70" title={customerAuth.customer.name}>
+					Halo, {customerAuth.customer.name}
+				</span>
+				<button
+					type="button"
+					onclick={logout}
+					aria-label="Keluar dari akun pelanggan"
+					class="btn-lyco inline-flex h-11 w-11 items-center justify-center rounded-full"
+					title="Keluar"
+				>
+					<LogOut size={18} strokeWidth={1.8} />
+				</button>
+			{/if}
 			<button
 				type="button"
 				onclick={openCart}
@@ -143,6 +164,21 @@
 						Pesan Sekarang
 					</a>
 				</li>
+				{#if customerAuth.customer}
+					<li>
+						<button
+							type="button"
+							onclick={() => {
+								closeMobile();
+								logout();
+							}}
+							class="flex h-12 w-full items-center justify-center gap-2 rounded-[14px] border border-white/15 text-[15px] font-medium text-white/70"
+						>
+							<LogOut size={17} />
+							Keluar ({customerAuth.customer.name})
+						</button>
+					</li>
+				{/if}
 			</ul>
 		</div>
 	{/if}

@@ -4,7 +4,7 @@ import path from 'node:path';
 import { Router } from 'express';
 import multer from 'multer';
 import { config } from '../config.js';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, requireRole } from '../middleware/auth.js';
 import { ah } from '../middleware/http.js';
 
 const ALLOWED = new Set(['image/jpeg', 'image/png', 'image/webp']);
@@ -38,14 +38,14 @@ export function uploadRoutes() {
 	});
 
 	// Upload satu foto produk (admin). Form field: "image".
-	r.post('/', requireAuth, upload.single('image'), (req, res) => {
+	r.post('/', requireAuth, requireRole('superadmin'), upload.single('image'), (req, res) => {
 		if (!req.file) return res.status(400).json({ error: 'File image wajib diisi.' });
 		return res.status(201).json({ url: `/uploads/${req.file.filename}` });
 	});
 
 	r.delete(
 		'/:filename',
-		requireAuth,
+		requireAuth, requireRole('superadmin'),
 		ah(async (req, res) => {
 			const name = path.basename(req.params.filename);
 			const target = path.join(config.uploadDir, name);

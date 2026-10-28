@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { ah, validate } from '../middleware/http.js';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, requireRole } from '../middleware/auth.js';
 import { categorySchema, renameCategorySchema, reorderCategoriesSchema } from '../schemas.js';
 import { seedDatabase } from '../db.js';
 
@@ -25,7 +25,7 @@ export function categoryRoutes(db) {
 
 	r.post(
 		'/',
-		requireAuth,
+		requireAuth, requireRole('superadmin'),
 		validate(categorySchema),
 		ah(async (req, res) => {
 			const name = req.body.name.trim();
@@ -43,7 +43,7 @@ export function categoryRoutes(db) {
 	// Ditaruh SEBELUM '/:name' agar tidak tertelan param.
 	r.put(
 		'/reorder',
-		requireAuth,
+		requireAuth, requireRole('superadmin'),
 		validate(reorderCategoriesSchema),
 		ah(async (req, res) => {
 			const order = [...new Set(req.body.order.map((s) => s.trim()).filter(Boolean))];
@@ -61,7 +61,7 @@ export function categoryRoutes(db) {
 
 	r.put(
 		'/:name',
-		requireAuth,
+		requireAuth, requireRole('superadmin'),
 		validate(renameCategorySchema),
 		ah(async (req, res) => {
 			const oldName = req.params.name;
@@ -83,7 +83,7 @@ export function categoryRoutes(db) {
 
 	r.delete(
 		'/:name',
-		requireAuth,
+		requireAuth, requireRole('superadmin'),
 		ah(async (req, res) => {
 			const name = req.params.name;
 			const row = db.prepare('SELECT id FROM categories WHERE name = ?').get(name);
@@ -103,7 +103,7 @@ export function categoryRoutes(db) {
 
 	r.post(
 		'/reset',
-		requireAuth,
+		requireAuth, requireRole('superadmin'),
 		ah(async (_req, res) => {
 			db.exec('DELETE FROM products; DELETE FROM categories;');
 			seedDatabase(db);

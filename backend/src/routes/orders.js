@@ -130,5 +130,94 @@ export function orderRoutes(db) {
 		})
 	);
 
+	// Laporan penjualan minggu berjalan (admin — grafik + makanan terlaris).
+	// Dihitung live dari DB setiap request (zona Asia/Jakarta) sehingga selalu update.
+	// Hanya pesanan 'selesai' yang dihitung sebagai omzet.
+	r.get(
+		'/report/weekly',
+		requireAuth,
+		ah(async (_req, res) => {
+			const rows = db
+				.prepare(
+					`SELECT created_at, items, total FROM orders
+					 WHERE status = 'selesai' AND created_at >= datetime('now', '-14 days')`
+				)
+				.all();
+
+			const fmtDay = new Intl.DateTimeFormat('en-CA', {
+				timeZone: 'Asia/Jakarta',
+				year: 'numeric',
+				month: '2-digit',
+				day: '2-digit'
+			});
+			const toKey = (d) => fmtDay.format(d); // YYYY-MM-DD (WIB)
+
+			// Senin minggu berjalan (WIB): mundur dari hari ini sesuai nomor hari.
+			const WEEKDAY_NUM = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 };
+			const nowUtc = new Date();
+			const weekdayShort = new Intl.DateTimeFormat('en-GB', {
+				timeZone: 'Asia/Jakarta',
+				weekday: 'short'
+			}).format(nowUtc);
+			const weekday = WEEKDAY_NUM[weekdayShort] ?? 7;
+			const todayNoonWib = new Date(`${toKey(nowUtc)}T12:00:00+07:00`);
+			const mondayNoon = new Date(todayNoonWib.getTime() - (weekday - 1) * 86400000);
+
+			const DAY_LABELS = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'];
+			const days = Array.from({ length: 7 }, (_, i) => {
+				const d = new Date(mondayNoon.getTime() + i * 86400000);
+				return { date: toKey(d), label: DAY_LABELS[i], total: 0, count: 0 };
+			});
+			const byDate = new Map(days.map((d) => [d.date, d]));
+			// Minggu lalu: 7 hari sebelum Senin minggu ini.
+			let prevTotal = 0;
+			let prevCount = 0;
+
+			const top = new Map();
+			for (const row of rows) {
+				const at = new Date(String(row.created_at).replace(' ', 'T') + 'Z');
+				if (Number.isNaN(at.getTime())) continue;
+				const key = toKey(at);
+				const slot = byDate.get(key);
+				if (slot) {
+					slot.total += row.total;
+					slot.count += 1;
+					let items = [];
+					try {
+						items = JSON.parse(row.items ?? '[]');
+					} catch {
+						items = [];
+					}
+					for (const it of items) {
+						const cur = top.get(it.name) ?? { name: it.name, qty: 0, revenue: 0 };
+						cur.qty += it.qty;
+						cur.revenue += it.qty * it.price;
+						top.set(it.name, cur);
+					}
+				} else {
+					// Di luar minggu ini (maks. 14 hari ke belakang) → hitung sebagai minggu lalu.
+					prevTotal += row.total;
+					prevCount += 1;
+				}
+			}
+
+			const weekTotal = days.reduce((n, d) => n + d.total, 0);
+			const weekCount = days.reduce((n, d) => n + d.count, 0);
+			const topItems = [...top.values()].sort((a, b) => b.qty - a.qty).slice(0, 10);
+
+			return res.json({
+				weekStart: days[0].date,
+				weekEnd: days[6].date,
+				days,
+				weekTotal,
+				weekCount,
+				avgTicket: weekCount ? Math.round(weekTotal / weekCount) : 0,
+				prevTotal,
+				prevCount,
+				topItems
+			});
+		})
+	);
+
 	return r;
 }

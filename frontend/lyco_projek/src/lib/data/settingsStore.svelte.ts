@@ -17,6 +17,8 @@ export type SiteSettings = {
 	hoursWeekdayTime: string;
 	hoursWeekendLabel: string;
 	hoursWeekendTime: string;
+	qrisImage: string;
+	qrisMerchant: string;
 };
 
 const STORAGE_KEY = 'lyco:settings:v1';
@@ -41,7 +43,9 @@ export const defaultSettings: SiteSettings = {
 	hoursWeekdayLabel: 'Senin – Jumat',
 	hoursWeekdayTime: '08.00 – 22.00 WIB',
 	hoursWeekendLabel: 'Sabtu – Minggu',
-	hoursWeekendTime: '09.00 – 23.00 WIB'
+	hoursWeekendTime: '09.00 – 23.00 WIB',
+	qrisImage: '',
+	qrisMerchant: 'LYCO Coffee and Place'
 };
 
 /** Pengaturan landing page yang reaktif + tersimpan di browser. */

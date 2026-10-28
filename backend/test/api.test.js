@@ -11,10 +11,13 @@ process.env.UPLOAD_DIR = tmpUpload;
 process.env.JWT_SECRET = 'test-secret-min-32-karakter-abcdef';
 process.env.ADMIN_USERNAME = 'admin';
 process.env.ADMIN_PASSWORD = 'lyco123';
+process.env.SUPERADMIN_USERNAME = 'superadmin';
+process.env.SUPERADMIN_PASSWORD = 'lyco-super-123';
 
 const { createApp } = await import('../src/app.js');
 let api;
 let token;
+let superToken;
 
 before(() => {
 	const { app } = createApp({ dbPath: ':memory:' });
@@ -46,11 +49,27 @@ describe('auth', () => {
 		assert.equal(res.status, 401);
 	});
 
-	it('login benar -> token', async () => {
+	it('login benar -> token + role admin', async () => {
 		const res = await api.post('/api/auth/login').send({ username: 'admin', password: 'lyco123' });
 		assert.equal(res.status, 200);
 		assert.ok(res.body.token);
+		assert.equal(res.body.role, 'admin');
 		token = res.body.token;
+	});
+
+	it('login superadmin -> role superadmin', async () => {
+		const res = await api.post('/api/auth/login').send({ username: 'superadmin', password: 'lyco-super-123' });
+		assert.equal(res.status, 200);
+		assert.equal(res.body.role, 'superadmin');
+		superToken = res.body.token;
+	});
+
+	it('admin biasa CRUD produk -> 403', async () => {
+		const res = await api
+			.post('/api/products')
+			.set('Authorization', `Bearer ${token}`)
+			.send({ name: 'X', price: 1000, category: 'Coffee', featured: false });
+		assert.equal(res.status, 403);
 	});
 
 	it('tanpa token akses POST produk -> 401', async () => {
@@ -76,7 +95,7 @@ describe('products', () => {
 	it('CRUD produk dengan auth', async () => {
 		const created = await api
 			.post('/api/products')
-			.set('Authorization', `Bearer ${token}`)
+			.set('Authorization', `Bearer ${superToken}`)
 			.send({ name: 'Test Kopi', description: 'd', price: 15000, image: '/menu/x.jpg', category: 'Coffee', featured: true });
 		assert.equal(created.status, 201);
 		const id = created.body.id;
@@ -86,11 +105,11 @@ describe('products', () => {
 
 		const bad = await api
 			.post('/api/products')
-			.set('Authorization', `Bearer ${token}`)
+			.set('Authorization', `Bearer ${superToken}`)
 			.send({ name: '', price: -5, category: '' });
 		assert.equal(bad.status, 400);
 
-		const del = await api.delete(`/api/products/${id}`).set('Authorization', `Bearer ${token}`);
+		const del = await api.delete(`/api/products/${id}`).set('Authorization', `Bearer ${superToken}`);
 		assert.equal(del.status, 204);
 	});
 });
@@ -99,29 +118,29 @@ describe('categories', () => {
 	it('tambah duplikat (case-insensitive) -> 409', async () => {
 		const res = await api
 			.post('/api/categories')
-			.set('Authorization', `Bearer ${token}`)
+			.set('Authorization', `Bearer ${superToken}`)
 			.send({ name: 'coffee' });
 		assert.equal(res.status, 409);
 	});
 
 	it('hapus kategori terpakai -> 409, rename pindahkan produk', async () => {
-		const blocked = await api.delete('/api/categories/Coffee').set('Authorization', `Bearer ${token}`);
+		const blocked = await api.delete('/api/categories/Coffee').set('Authorization', `Bearer ${superToken}`);
 		assert.equal(blocked.status, 409);
 
 		const added = await api
 			.post('/api/categories')
-			.set('Authorization', `Bearer ${token}`)
+			.set('Authorization', `Bearer ${superToken}`)
 			.send({ name: 'Kopi Test' });
 		assert.equal(added.status, 201);
 
 		const renamed = await api
 			.put('/api/categories/Kopi Test')
-			.set('Authorization', `Bearer ${token}`)
+			.set('Authorization', `Bearer ${superToken}`)
 			.send({ name: 'Kopi Test 2' });
 		assert.equal(renamed.status, 200);
 		assert.ok(renamed.body.items.some((c) => c.name === 'Kopi Test 2'));
 
-		const gone = await api.delete('/api/categories/Kopi Test 2').set('Authorization', `Bearer ${token}`);
+		const gone = await api.delete('/api/categories/Kopi Test 2').set('Authorization', `Bearer ${superToken}`);
 		assert.equal(gone.status, 200);
 	});
 });
@@ -134,7 +153,7 @@ describe('settings', () => {
 
 		const updated = await api
 			.put('/api/settings')
-			.set('Authorization', `Bearer ${token}`)
+			.set('Authorization', `Bearer ${superToken}`)
 			.send({ heroTitle: 'LYCO TEST' });
 		assert.equal(updated.status, 200);
 		assert.equal(updated.body.heroTitle, 'LYCO TEST');
@@ -220,39 +239,39 @@ describe('tables', () => {
 	it('CRUD meja + validasi kode', async () => {
 		const bad = await api
 			.post('/api/tables')
-			.set('Authorization', `Bearer ${token}`)
+			.set('Authorization', `Bearer ${superToken}`)
 			.send({ code: 'A 5!' });
 		assert.equal(bad.status, 400);
 
 		const created = await api
 			.post('/api/tables')
-			.set('Authorization', `Bearer ${token}`)
+			.set('Authorization', `Bearer ${superToken}`)
 			.send({ code: '9', name: 'Teras' });
 		assert.equal(created.status, 201);
 		assert.ok(created.body.items.some((t) => t.code === '9'));
 
 		const dup = await api
 			.post('/api/tables')
-			.set('Authorization', `Bearer ${token}`)
+			.set('Authorization', `Bearer ${superToken}`)
 			.send({ code: '9' });
 		assert.equal(dup.status, 409);
 
 		const renamed = await api
 			.put('/api/tables/9')
-			.set('Authorization', `Bearer ${token}`)
+			.set('Authorization', `Bearer ${superToken}`)
 			.send({ code: '10' });
 		assert.equal(renamed.status, 200);
 		assert.ok(renamed.body.items.some((t) => t.code === '10'));
 
 		const off = await api
 			.put('/api/tables/10')
-			.set('Authorization', `Bearer ${token}`)
+			.set('Authorization', `Bearer ${superToken}`)
 			.send({ active: false });
 		assert.equal(off.body.items.find((t) => t.code === '10').active, false);
 
 		const gone = await api
 			.delete('/api/tables/10')
-			.set('Authorization', `Bearer ${token}`);
+			.set('Authorization', `Bearer ${superToken}`);
 		assert.equal(gone.status, 200);
 		assert.ok(!gone.body.items.some((t) => t.code === '10'));
 	});
@@ -268,7 +287,7 @@ describe('tables', () => {
 
 		const blocked = await api
 			.delete('/api/tables/1')
-			.set('Authorization', `Bearer ${token}`);
+			.set('Authorization', `Bearer ${superToken}`);
 		assert.equal(blocked.status, 409);
 
 		await api
@@ -278,7 +297,7 @@ describe('tables', () => {
 
 		const ok = await api
 			.delete('/api/tables/1')
-			.set('Authorization', `Bearer ${token}`);
+			.set('Authorization', `Bearer ${superToken}`);
 		assert.equal(ok.status, 200);
 	});
 });

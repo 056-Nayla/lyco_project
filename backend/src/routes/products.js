@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { ah, validate } from '../middleware/http.js';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, requireRole } from '../middleware/auth.js';
 import { idParamSchema, productQuerySchema, productSchema } from '../schemas.js';
 import { rowToProduct, seedDatabase } from '../db.js';
 
@@ -47,7 +47,7 @@ export function productRoutes(db) {
 
 	r.post(
 		'/',
-		requireAuth,
+		requireAuth, requireRole('superadmin'),
 		validate(productSchema),
 		ah(async (req, res) => {
 			const p = req.body;
@@ -63,7 +63,7 @@ export function productRoutes(db) {
 
 	r.put(
 		'/:id',
-		requireAuth,
+		requireAuth, requireRole('superadmin'),
 		validate(idParamSchema, 'params'),
 		validate(productSchema),
 		ah(async (req, res) => {
@@ -80,7 +80,7 @@ export function productRoutes(db) {
 
 	r.delete(
 		'/:id',
-		requireAuth,
+		requireAuth, requireRole('superadmin'),
 		validate(idParamSchema, 'params'),
 		ah(async (req, res) => {
 			const info = db.prepare('DELETE FROM products WHERE id = ?').run(req.params.id);
@@ -92,7 +92,7 @@ export function productRoutes(db) {
 	// Kembalikan katalog ke bawaan seed (dipakai tombol "Reset ke Bawaan" di admin).
 	r.post(
 		'/reset',
-		requireAuth,
+		requireAuth, requireRole('superadmin'),
 		ah(async (_req, res) => {
 			db.exec('DELETE FROM products; DELETE FROM categories;');
 			seedDatabase(db);

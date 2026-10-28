@@ -19,7 +19,9 @@ export const defaultSettings = {
 	hoursWeekdayLabel: 'Senin – Jumat',
 	hoursWeekdayTime: '08.00 – 22.00 WIB',
 	hoursWeekendLabel: 'Sabtu – Minggu',
-	hoursWeekendTime: '09.00 – 23.00 WIB'
+	hoursWeekendTime: '09.00 – 23.00 WIB',
+	qrisImage: '',
+	qrisMerchant: 'LYCO Coffee and Place'
 };
 
 export const settingKeys = Object.keys(defaultSettings);
