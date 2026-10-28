@@ -80,6 +80,24 @@
 		setCategories
 	} from '#lib/data/categoriesStore.svelte.js';
 	import {
+		addStaff,
+		removeStaff,
+		resetStaff,
+		staffState,
+		toggleStaff,
+		updateStaff,
+		type Staff
+	} from '#lib/data/stafStore.svelte.js';
+	import {
+		addShift,
+		removeShift,
+		resetShifts,
+		shiftState,
+		toggleShift,
+		updateShift,
+		type Shift
+	} from '#lib/data/shiftStore.svelte.js';
+	import {
 		LOCAL_IMAGES,
 		addProduct,
 		catalog,
@@ -105,8 +123,8 @@
 	const FALLBACK_PASSWORD = 'lyco123';
 	const AUTH_KEY = 'lyco:admin:auth';
 
-	type Tab = 'dashboard' | 'menu' | 'kategori' | 'pesanan' | 'meja' | 'laporan' | 'pengaturan';
-	type DisabledKey = 'meja' | 'staf' | 'shift';
+	type Tab = 'dashboard' | 'menu' | 'kategori' | 'pesanan' | 'meja' | 'laporan' | 'staf' | 'shift' | 'pengaturan';
+	type DisabledKey = 'meja';
 
 	let authed = $state(false);
 	let role = $state<AdminRole | null>(null);
@@ -125,8 +143,8 @@
 		{ icon: Tags, label: 'Kategori', key: 'kategori', superOnly: true },
 		{ icon: Receipt, label: 'Pesanan', key: 'pesanan' },
 		{ icon: QrCode, label: 'Meja & QR', key: 'meja', superOnly: true },
-		{ icon: Users, label: 'Staf', key: 'staf', disabled: true },
-		{ icon: Clock, label: 'Shift', key: 'shift', disabled: true },
+		{ icon: Users, label: 'Staf', key: 'staf', superOnly: true },
+		{ icon: Clock, label: 'Shift', key: 'shift', superOnly: true },
 		{ icon: BarChart3, label: 'Laporan', key: 'laporan' },
 		{ icon: Settings, label: 'Pengaturan', key: 'pengaturan', superOnly: true }
 	] as const;
@@ -134,7 +152,7 @@
 	const isSuper = $derived(role === 'superadmin');
 	/** Tab CRUD (menu/kategori/meja/pengaturan) hanya untuk superadmin. */
 	const visibleNavItems = $derived(navItems.filter((i) => isSuper || !('superOnly' in i && i.superOnly)));
-	const CRUD_TABS: Tab[] = ['menu', 'kategori', 'meja', 'pengaturan'];
+	const CRUD_TABS: Tab[] = ['menu', 'kategori', 'meja', 'staf', 'shift', 'pengaturan'];
 
 	const subtitles: Record<Tab | DisabledKey, string> = {
 		dashboard: 'Ringkasan hari ini',
@@ -459,6 +477,46 @@
 			return () => clearInterval(t);
 		}
 	});
+
+	// ── Staf (nama asal, lokal browser) ──────────────────────────
+	let staffForm = $state({ id: null as string | null, name: '', position: '', phone: '' });
+	let staffError = $state('');
+
+	function staffSubmit(): void {
+		staffError = '';
+		const data = { name: staffForm.name, position: staffForm.position, phone: staffForm.phone, active: true };
+		const res = staffForm.id ? updateStaff(staffForm.id, { ...data, active: staffState.items.find((s) => s.id === staffForm.id)?.active ?? true }) : addStaff(data);
+		if (!res.ok) {
+			staffError = res.message ?? 'Gagal menyimpan staf.';
+			return;
+		}
+		staffForm = { id: null, name: '', position: '', phone: '' };
+	}
+
+	function staffEdit(s: Staff): void {
+		staffForm = { id: s.id, name: s.name, position: s.position, phone: s.phone };
+		staffError = '';
+	}
+
+	// ── Shift (nama asal, lokal browser) ─────────────────────────
+	let shiftForm = $state({ id: null as string | null, name: '', time: '', days: '' });
+	let shiftError = $state('');
+
+	function shiftSubmit(): void {
+		shiftError = '';
+		const data = { name: shiftForm.name, time: shiftForm.time, days: shiftForm.days, active: true };
+		const res = shiftForm.id ? updateShift(shiftForm.id, { ...data, active: shiftState.items.find((s) => s.id === shiftForm.id)?.active ?? true }) : addShift(data);
+		if (!res.ok) {
+			shiftError = res.message ?? 'Gagal menyimpan shift.';
+			return;
+		}
+		shiftForm = { id: null, name: '', time: '', days: '' };
+	}
+
+	function shiftEdit(s: Shift): void {
+		shiftForm = { id: s.id, name: s.name, time: s.time, days: s.days };
+		shiftError = '';
+	}
 
 	onMount(async () => {
 		try {
@@ -1039,7 +1097,7 @@
 					{#each visibleNavItems as item (item.key)}
 						{@const Icon = item.icon}
 						{@const active = tab === item.key}
-						{@const disabled = 'disabled' in item && item.disabled}
+						{@const disabled = 'disabled' in item && Boolean(item.disabled)}
 						<button
 							type="button"
 							onclick={() => !disabled && goTab(item.key as Tab)}
@@ -1123,7 +1181,7 @@
 					{#each visibleNavItems as item (item.key)}
 						{@const Icon = item.icon}
 						{@const active = tab === item.key}
-						{@const disabled = 'disabled' in item && item.disabled}
+						{@const disabled = 'disabled' in item && Boolean(item.disabled)}
 						<button
 							type="button"
 							onclick={() => !disabled && goTab(item.key as Tab)}
@@ -2076,6 +2134,128 @@
 					<p class="mt-3 text-sm text-white/60">
 						Otomatis diperbarui tiap 30 detik dari data pesanan terbaru — berlaku untuk minggu ini dan minggu-minggu berikutnya.
 					</p>
+				{:else if tab === 'staf'}
+					<div class="{cardCls} p-5">
+						<h2 class="font-heading text-base font-semibold text-white">Daftar Staf</h2>
+						<p class="mt-1 text-sm text-white/60">Data contoh (nama asal) � tersimpan di browser ini. Tambah, ubah, nonaktifkan, atau hapus manual.</p>
+						<div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+							<div>
+								<label for="st-name" class={labelCls}>Nama staf</label>
+								<input id="st-name" bind:value={staffForm.name} placeholder="cth. Budi Santoso" class={inputCls} />
+							</div>
+							<div>
+								<label for="st-pos" class={labelCls}>Posisi</label>
+								<input id="st-pos" bind:value={staffForm.position} placeholder="cth. Barista" class={inputCls} />
+							</div>
+							<div>
+								<label for="st-phone" class={labelCls}>No. HP</label>
+								<input id="st-phone" bind:value={staffForm.phone} placeholder="cth. 081234567890" inputmode="tel" class={inputCls} />
+							</div>
+							<div class="flex items-end gap-2">
+								<button type="button" onclick={staffSubmit} class="{btnPrimary} h-10 flex-1">{staffForm.id ? 'Simpan' : 'Tambah'}</button>
+								{#if staffForm.id}
+								<button type="button" onclick={() => (staffForm = { id: null, name: '', position: '', phone: '' })} class="{btnOutline} h-10">Batal</button>
+								{/if}
+							</div>
+						</div>
+						{#if staffError}
+							<p class="mt-3 text-sm text-red-300">{staffError}</p>
+						{/if}
+						<div class="mt-4 overflow-x-auto">
+							<table class="w-full min-w-[680px] text-left text-sm">
+							<thead>
+								<tr class="border-b border-white/10 text-xs tracking-wider text-white/60 uppercase">
+								<th class="px-4 py-3 font-medium">Nama</th>
+								<th class="px-4 py-3 font-medium">Posisi</th>
+								<th class="px-4 py-3 font-medium">No. HP</th>
+								<th class="px-4 py-3 font-medium">Status</th>
+								<th class="px-4 py-3 text-right font-medium">Aksi</th>
+								</tr>
+							</thead>
+							<tbody>
+							{#each staffState.items as s (s.id)}
+								<tr class="border-b border-white/10 last:border-0 hover:bg-white/5">
+								<td class="px-4 py-3 font-medium text-white">{s.name}</td>
+								<td class="px-4 py-3 text-white/70">{s.position || '�'}</td>
+								<td class="px-4 py-3 text-white/70">{s.phone || '�'}</td>
+								<td class="px-4 py-3">
+								<button type="button" onclick={() => toggleStaff(s.id)} class="inline-flex rounded-lg px-2 py-1 text-xs font-semibold {s.active ? 'bg-emerald-400/15 text-emerald-200' : 'bg-white/10 text-white/50'}">{s.active ? 'Aktif' : 'Nonaktif'}</button>
+								</td>
+								<td class="px-4 py-3"><div class="flex justify-end gap-1.5">
+								<button type="button" onclick={() => staffEdit(s)} aria-label="Ubah {s.name}" class={iconBtn}><Pencil size={15} /></button>
+								<button type="button" onclick={() => confirm('Hapus ' + s.name + '?') && removeStaff(s.id)} aria-label="Hapus {s.name}" class="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-red-400/30 bg-red-500/10 text-red-300 hover:bg-red-500/20"><Trash2 size={15} /></button>
+								</div></td>
+								</tr>
+							{/each}
+							</tbody>
+							</table>
+						</div>
+						<button type="button" onclick={() => confirm('Kembalikan daftar staf ke contoh bawaan?') && resetStaff()} class="{btnOutline} mt-4">
+							<RotateCcw size={15} />
+							Reset ke Contoh
+						</button>
+					</div>
+				{:else if tab === 'shift'}
+					<div class="{cardCls} p-5">
+						<h2 class="font-heading text-base font-semibold text-white">Jadwal Shift</h2>
+						<p class="mt-1 text-sm text-white/60">Data contoh (nama asal) - tersimpan di browser ini. Tambah, ubah, nonaktifkan, atau hapus manual.</p>
+						<div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+							<div>
+								<label for="sh-name" class={labelCls}>Nama shift</label>
+								<input id="sh-name" bind:value={shiftForm.name} placeholder="cth. Shift Pagi" class={inputCls} />
+							</div>
+							<div>
+								<label for="sh-time" class={labelCls}>Jam</label>
+								<input id="sh-time" bind:value={shiftForm.time} placeholder="cth. 08.00 - 16.00" class={inputCls} />
+							</div>
+							<div>
+								<label for="sh-days" class={labelCls}>Hari</label>
+								<input id="sh-days" bind:value={shiftForm.days} placeholder="cth. Senin - Jumat" class={inputCls} />
+							</div>
+							<div class="flex items-end gap-2">
+								<button type="button" onclick={shiftSubmit} class="{btnPrimary} h-10 flex-1">{shiftForm.id ? 'Simpan' : 'Tambah'}</button>
+								{#if shiftForm.id}
+								<button type="button" onclick={() => (shiftForm = { id: null, name: '', time: '', days: '' })} class="{btnOutline} h-10">Batal</button>
+								{/if}
+							</div>
+						</div>
+						{#if shiftError}
+							<p class="mt-3 text-sm text-red-300">{shiftError}</p>
+						{/if}
+						<div class="mt-4 overflow-x-auto">
+							<table class="w-full min-w-[680px] text-left text-sm">
+							<thead>
+								<tr class="border-b border-white/10 text-xs tracking-wider text-white/60 uppercase">
+								<th class="px-4 py-3 font-medium">Nama</th>
+								<th class="px-4 py-3 font-medium">Jam</th>
+								<th class="px-4 py-3 font-medium">Hari</th>
+								<th class="px-4 py-3 font-medium">Status</th>
+								<th class="px-4 py-3 text-right font-medium">Aksi</th>
+								</tr>
+							</thead>
+							<tbody>
+							{#each shiftState.items as s (s.id)}
+								<tr class="border-b border-white/10 last:border-0 hover:bg-white/5">
+								<td class="px-4 py-3 font-medium text-white">{s.name}</td>
+								<td class="px-4 py-3 text-white/70">{s.time || '�'}</td>
+								<td class="px-4 py-3 text-white/70">{s.days || '�'}</td>
+								<td class="px-4 py-3">
+								<button type="button" onclick={() => toggleShift(s.id)} class="inline-flex rounded-lg px-2 py-1 text-xs font-semibold {s.active ? 'bg-emerald-400/15 text-emerald-200' : 'bg-white/10 text-white/50'}">{s.active ? 'Aktif' : 'Nonaktif'}</button>
+								</td>
+								<td class="px-4 py-3"><div class="flex justify-end gap-1.5">
+								<button type="button" onclick={() => shiftEdit(s)} aria-label="Ubah {s.name}" class={iconBtn}><Pencil size={15} /></button>
+								<button type="button" onclick={() => confirm('Hapus ' + s.name + '?') && removeShift(s.id)} aria-label="Hapus {s.name}" class="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-red-400/30 bg-red-500/10 text-red-300 hover:bg-red-500/20"><Trash2 size={15} /></button>
+								</div></td>
+								</tr>
+							{/each}
+							</tbody>
+							</table>
+						</div>
+						<button type="button" onclick={() => confirm('Kembalikan jadwal shift ke contoh bawaan?') && resetShifts()} class="{btnOutline} mt-4">
+							<RotateCcw size={15} />
+							Reset ke Contoh
+						</button>
+					</div>
 				{:else}
 					<div class="{cardCls} p-6">
 						<h2 class="font-heading text-lg font-semibold text-white">Teks & Kontak Landing Page</h2>
