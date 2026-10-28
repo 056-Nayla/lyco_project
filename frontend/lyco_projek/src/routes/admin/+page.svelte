@@ -12,6 +12,7 @@
 		Link2,
 		LogOut,
 		Menu as MenuIcon,
+		MessageCircle,
 		Pencil,
 		Plus,
 		QrCode,
@@ -48,6 +49,7 @@
 		getAllOrders,
 		getToken,
 		getUsername,
+		getWaConfig,
 		login as apiLogin,
 		reorderCategoriesApi,
 		renameCategoryApi,
@@ -348,10 +350,46 @@
 		}
 	}
 
+	let waConfig = $state<{ configured: boolean; autoSend: boolean } | null>(null);
+	let waNotice = $state('');
+
+	function waLinkFor(o: Order): string {
+		if (o.wa?.link) return o.wa.link;
+		const to = (o.buyer_phone ?? '').replace(/\D/g, '');
+		if (!to) return '';
+		const lines = o.items.map((l, i) => `${i + 1}. ${l.qty}x ${l.name}`);
+		const msg = [
+			`Halo ${o.buyer_name || 'kak'}! Pesanan Lyco ${o.code}:`,
+			...lines,
+			`Status: ${ORDER_LABEL[o.status] ?? o.status}`
+		].join('\n');
+		return `https://wa.me/${to}?text=${encodeURIComponent(msg)}`;
+	}
+
+	async function loadWaConfig(): Promise<void> {
+		try {
+			waConfig = await getWaConfig();
+		} catch {
+			waConfig = null;
+		}
+	}
+
 	async function changeOrderStatus(id: number, status: OrderStatus): Promise<void> {
+		waNotice = '';
 		try {
 			const updated = await setOrderStatus(id, status);
 			orders = orders.map((o) => (o.id === id ? updated : o));
+			const wa = updated.wa;
+			if (wa && (status === 'diproses' || status === 'selesai' || status === 'batal')) {
+				if (wa.sent) {
+					waNotice = `WA terkirim ke ${wa.to} untuk ${updated.code} (${ORDER_LABEL[status]}).`;
+				} else if (wa.link) {
+					waNotice = `WA otomatis gagal (${wa.error ?? 'gateway belum siap'}). Klik tombol WA di baris ${updated.code} untuk kirim manual.`;
+					window.open(wa.link, '_blank');
+				} else {
+					waNotice = `Pesanan ${updated.code} tanpa No. WA — tidak ada notif dikirim.`;
+				}
+			}
 		} catch (e) {
 			alert(errMsg(e, 'Gagal mengubah status pesanan.'));
 		}
@@ -361,6 +399,7 @@
 	$effect(() => {
 		if (tab === 'pesanan' && authed) {
 			void loadOrders();
+			void loadWaConfig();
 			const t = setInterval(() => void loadOrders(), 15000);
 			return () => clearInterval(t);
 		}
@@ -1738,6 +1777,15 @@
 							Ada {newOrderCount} pesanan baru menunggu diproses.
 						</p>
 					{/if}
+					{#if waConfig && !waConfig.configured}
+						<p class="mt-3 rounded-xl border border-sky-300/30 bg-sky-400/10 px-4 py-2.5 text-sm text-sky-200">
+							Gateway WA belum dikonfigurasi (WA_API_KEY kosong) — status berubah tetap tersimpan, tapi notif otomatis TIDAK terkirim.
+							Isi WA_API_KEY di backend/.env lalu restart backend. Opsi manual: tombol WA per baris tetap bisa dipakai.
+						</p>
+					{/if}
+					{#if waNotice}
+						<p class="mt-3 rounded-xl border border-emerald-300/30 bg-emerald-400/10 px-4 py-2.5 text-sm text-emerald-200">{waNotice}</p>
+					{/if}
 
 					<div class="{cardCls} mt-4 overflow-hidden">
 						<div class="overflow-x-auto">
@@ -1761,6 +1809,7 @@
 											</td>
 											<td class="px-4 py-3">
 												<p class="font-medium text-white">{o.buyer_name}</p>
+												<p class="text-xs {o.buyer_phone ? 'text-white/50' : 'text-red-300/80'}">{o.buyer_phone ? `WA: ${o.buyer_phone}` : 'Tanpa No. WA'}</p>
 												<p class="text-xs text-white/50">{o.table_no ? `Meja ${o.table_no}` : 'Tanpa no. meja'}</p>
 											</td>
 											<td class="px-4 py-3 text-white/70">
@@ -1780,7 +1829,7 @@
 												</span>
 											</td>
 											<td class="px-4 py-3">
-												<div class="flex justify-end gap-1.5">
+												<div class="flex flex-wrap justify-end gap-1.5">
 													{#if o.status === 'baru'}
 														<button type="button" onclick={() => void changeOrderStatus(o.id, 'diproses')} class="{btnOutline} h-8 px-3 text-xs">Proses</button>
 														<button type="button" onclick={() => confirm(`Batalkan pesanan ${o.code}?`) && void changeOrderStatus(o.id, 'batal')} class="inline-flex h-8 items-center rounded-xl border border-red-400/30 bg-red-500/10 px-3 text-xs font-medium text-red-300 hover:bg-red-500/20">Batal</button>
@@ -1790,7 +1839,17 @@
 													{:else}
 														<span class="text-xs text-white/30">—</span>
 													{/if}
+													{#if waLinkFor(o)}
+														<a href={waLinkFor(o)} target="_blank" rel="noopener" title="Kirim ulang notif WA manual" class="inline-flex h-8 items-center gap-1 rounded-xl border border-emerald-300/30 bg-emerald-400/10 px-2.5 text-xs font-medium text-emerald-200 hover:bg-emerald-400/20">
+															<MessageCircle size={13} /> WA
+														</a>
+													{/if}
 												</div>
+												{#if o.wa && !o.wa.sent && o.wa.error}
+													<p class="mt-1 text-right text-[11px] text-amber-200/80">WA auto gagal: {o.wa.error}</p>
+												{:else if o.wa?.sent}
+													<p class="mt-1 text-right text-[11px] text-emerald-200/80">WA terkirim ✓</p>
+												{/if}
 											</td>
 										</tr>
 										{#if expandedOrder === o.id}

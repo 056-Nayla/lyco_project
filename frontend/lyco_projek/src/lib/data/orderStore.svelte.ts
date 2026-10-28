@@ -6,6 +6,7 @@ import { ApiError, getMyOrders, type Order } from '#lib/api.js';
 
 const SESSION_KEY = 'lyco:buyer:session';
 const NAME_KEY = 'lyco:buyer:name';
+const PHONE_KEY = 'lyco:buyer:phone';
 const isBrowser = typeof window !== 'undefined' && typeof localStorage !== 'undefined';
 
 function newSessionId(): string {
@@ -46,6 +47,25 @@ export function setBuyerName(name: string): void {
 	if (!isBrowser) return;
 	try {
 		localStorage.setItem(NAME_KEY, name);
+	} catch {
+		// abaikan
+	}
+}
+
+/** No. WA pelanggan terakhir (prefill form checkout). */
+export function getBuyerPhone(): string {
+	if (!isBrowser) return '';
+	try {
+		return localStorage.getItem(PHONE_KEY) ?? '';
+	} catch {
+		return '';
+	}
+}
+
+export function setBuyerPhone(phone: string): void {
+	if (!isBrowser) return;
+	try {
+		localStorage.setItem(PHONE_KEY, phone);
 	} catch {
 		// abaikan
 	}

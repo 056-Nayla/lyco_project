@@ -73,6 +73,15 @@ const orderItemSchema = z.object({
 export const createOrderSchema = z.object({
 	buyer_name: z.string().trim().min(1, 'Nama pemesan wajib diisi.').max(80),
 	buyer_session: z.string().trim().min(1, 'Sesi pembeli wajib diisi.').max(100),
+	buyer_phone: z
+		.string()
+		.trim()
+		.max(20, 'No. WA maksimal 20 karakter.')
+		.optional()
+		.default('')
+		.refine((v) => v === '' || /^[+\d][\d\s\-().]*$/.test(v), {
+			message: 'No. WA hanya angka, spasi, +, -, (, ).'
+		}),
 	table_no: z.string().trim().max(20).default(''),
 	note: z.string().trim().max(300).default(''),
 	items: z.array(orderItemSchema).min(1, 'Keranjang masih kosong.').max(50, 'Maksimal 50 baris item.')

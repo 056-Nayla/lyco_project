@@ -49,6 +49,7 @@ export function openDatabase(dbPath = config.dbPath) {
 			code TEXT UNIQUE NOT NULL,
 			buyer_name TEXT NOT NULL,
 			buyer_session TEXT NOT NULL,
+			buyer_phone TEXT NOT NULL DEFAULT '',
 			table_no TEXT NOT NULL DEFAULT '',
 			note TEXT NOT NULL DEFAULT '',
 			items TEXT NOT NULL,
@@ -59,6 +60,24 @@ export function openDatabase(dbPath = config.dbPath) {
 		);
 		CREATE INDEX IF NOT EXISTS idx_orders_session ON orders(buyer_session);
 		CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
+	`);
+	// Migrasi ringan: tambah kolom buyer_phone kalau DB lama belum punya.
+	try {
+		const cols = db.prepare('PRAGMA table_info(orders)').all();
+		if (!cols.some((c) => c.name === 'buyer_phone')) {
+			db.exec("ALTER TABLE orders ADD COLUMN buyer_phone TEXT NOT NULL DEFAULT '';");
+		}
+	} catch {
+		// abaikan — tabel baru sudah mencakup kolom via CREATE TABLE di bawah ini pada DB fresh
+		// (kolom didefinisikan di CREATE TABLE IF NOT EXISTS di atas untuk DB baru via fallback).
+	}
+	// Pastikan kolom ada untuk DB fresh yang dibuat sebelum migrasi sempat jalan:
+	try {
+		db.exec("ALTER TABLE orders ADD COLUMN buyer_phone TEXT NOT NULL DEFAULT '';");
+	} catch {
+		// sudah ada — abaikan
+	}
+	db.exec(`
 		CREATE TABLE IF NOT EXISTS tables (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			code TEXT UNIQUE NOT NULL,
@@ -108,6 +127,7 @@ export function rowToOrder(row) {
 		code: row.code,
 		buyer_name: row.buyer_name,
 		buyer_session: row.buyer_session,
+		buyer_phone: row.buyer_phone ?? '',
 		table_no: row.table_no ?? '',
 		note: row.note ?? '',
 		items,

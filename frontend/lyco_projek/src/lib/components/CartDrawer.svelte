@@ -25,9 +25,11 @@
 	} from '#lib/data/cartStore.svelte.js';
 	import {
 		getBuyerName,
+		getBuyerPhone,
 		getBuyerSession,
 		loadMyOrders,
-		setBuyerName
+		setBuyerName,
+		setBuyerPhone
 	} from '#lib/data/orderStore.svelte.js';
 	import { dineIn } from '#lib/data/tablesStore.svelte.js';
 	import { site } from '#lib/data/settingsStore.svelte.js';
@@ -35,6 +37,7 @@
 	type Step = 'cart' | 'form' | 'done';
 	let step = $state<Step>('cart');
 	let buyerName = $state('');
+	let buyerPhone = $state('');
 	let tableNo = $state('');
 	let note = $state('');
 	let formError = $state('');
@@ -46,6 +49,7 @@
 
 	function startCheckout(): void {
 		buyerName = getBuyerName();
+		buyerPhone = getBuyerPhone();
 		tableNo = dineIn.code;
 		note = '';
 		formError = '';
@@ -92,10 +96,23 @@
 		window.open(`https://wa.me/${waNumber()}?text=${encodeURIComponent(msg)}`, '_blank');
 	}
 
+	function normalizeWaInput(v: string): string {
+		const d = v.replace(/[^\d]/g, '');
+		if (!d) return '';
+		if (d.startsWith('0')) return `62${d.slice(1)}`;
+		if (d.startsWith('8')) return `62${d}`;
+		return d;
+	}
+
 	/** Buat pesanan ke backend, terikat sesi pembeli perangkat ini. */
 	async function submitOrder(): Promise<void> {
 		if (!buyerName.trim()) {
 			formError = 'Nama pemesan wajib diisi.';
+			return;
+		}
+		const wa = buyerPhone.trim() ? normalizeWaInput(buyerPhone) : '';
+		if (buyerPhone.trim() && (wa.length < 9 || wa.length > 15)) {
+			formError = 'No. WA tidak valid (cth. 088989834160).';
 			return;
 		}
 		if (cart.lines.length === 0) {
@@ -108,6 +125,7 @@
 			const order = await createOrder({
 				buyer_name: buyerName.trim(),
 				buyer_session: getBuyerSession(),
+				buyer_phone: wa,
 				table_no: tableNo.trim(),
 				note: note.trim(),
 				items: cart.lines.map((l) => ({
@@ -120,6 +138,7 @@
 				}))
 			});
 			setBuyerName(buyerName.trim());
+			setBuyerPhone(wa);
 			clearCart();
 			lastOrder = order;
 			step = 'done';
@@ -266,6 +285,18 @@
 								autocomplete="name"
 								class={inputCls}
 							/>
+						</div>
+						<div>
+							<label for="co-wa" class="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.14em] text-white/50">No. WA <span class="normal-case text-white/30">(untuk notif pesanan)</span></label>
+							<input
+								id="co-wa"
+								bind:value={buyerPhone}
+								placeholder="cth. 088989834160"
+								autocomplete="tel"
+								inputmode="tel"
+								class={inputCls}
+							/>
+							<p class="mt-1 text-xs text-white/40">Admin kirim notif otomatis ke nomor ini saat pesanan diproses & selesai.</p>
 						</div>
 						<div>
 							<label for="co-table" class="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.14em] text-white/50">No. meja <span class="normal-case text-white/30">(opsional)</span></label>

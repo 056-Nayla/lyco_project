@@ -239,6 +239,7 @@ export type Order = {
 	code: string;
 	buyer_name: string;
 	buyer_session: string;
+	buyer_phone: string;
 	table_no: string;
 	note: string;
 	items: (OrderItemInput & { price: number; qty: number })[];
@@ -246,10 +247,20 @@ export type Order = {
 	status: OrderStatus;
 	created_at: string;
 	updated_at: string;
+	/** Hasil notif WA terakhir dari backend (ada setelah PATCH status). */
+	wa?: {
+		sent: boolean;
+		to: string;
+		message: string;
+		link: string;
+		provider?: string;
+		error?: string;
+	} | null;
 };
 export type CreateOrderInput = {
 	buyer_name: string;
 	buyer_session: string;
+	buyer_phone?: string;
 	table_no?: string;
 	note?: string;
 	items: OrderItemInput[];
@@ -269,9 +280,13 @@ export const getMyOrders = (session: string, limit = 20) =>
 export const getAllOrders = (status?: OrderStatus) =>
 	api<{ total: number; items: Order[] }>(`/api/orders${status ? `?status=${status}` : ''}`);
 
-/** Ubah status pesanan (admin). */
+/** Ubah status pesanan (admin). Backend otomatis kirim WA + balas { ...order, wa }. */
 export const setOrderStatus = (id: number, status: OrderStatus) =>
 	api<Order>(`/api/orders/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) });
+
+/** Status konfigurasi gateway WA (admin — untuk banner peringatan). */
+export const getWaConfig = () =>
+	api<{ configured: boolean; autoSend: boolean; apiUrl: string }>('/api/orders/wa-config');
 
 /** Detail satu produk (halaman detail). */
 export const getProductById = (id: number) => api<Product>(`/api/products/${id}`);

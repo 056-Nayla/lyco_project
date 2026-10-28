@@ -23,5 +23,12 @@ export const config = {
 	adminPassword: process.env.ADMIN_PASSWORD ?? 'lyco123',
 	dbPath: process.env.DB_PATH ? resolveMaybe(process.env.DB_PATH) : ':memory:',
 	uploadDir: resolveMaybe(process.env.UPLOAD_DIR ?? './uploads'),
-	maxUploadBytes: Number(process.env.MAX_UPLOAD_MB ?? 2) * 1024 * 1024
+	maxUploadBytes: Number(process.env.MAX_UPLOAD_MB ?? 2) * 1024 * 1024,
+	wa: {
+		apiKey: (process.env.WA_API_KEY ?? '').trim(),
+		apiUrl: (process.env.WA_API_URL ?? 'https://api.fonnte.com/send').trim(),
+		sender: (process.env.WA_SENDER ?? '').trim(),
+		autoSend: String(process.env.WA_AUTO_SEND ?? 'true').toLowerCase() !== 'false',
+		timeoutMs: Number(process.env.WA_TIMEOUT_MS ?? 10000)
+	}
 };

@@ -8,7 +8,9 @@ import {
 	mineOrdersQuerySchema,
 	updateOrderStatusSchema
 } from '../schemas.js';
+import { config } from '../config.js';
 import { rowToOrder } from '../db.js';
+import { normalizePhone, sendOrderStatusWa } from '../wa.js';
 
 function makeCode() {
 	return `LYCO-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
@@ -23,7 +25,7 @@ export function orderRoutes(db) {
 		'/',
 		validate(createOrderSchema),
 		ah(async (req, res) => {
-			const { buyer_name, buyer_session, table_no, note, items } = req.body;
+			const { buyer_name, buyer_session, buyer_phone, table_no, note, items } = req.body;
 			const getPrice = db.prepare('SELECT price, name FROM products WHERE id = ?');
 			const clean = items.map((it) => {
 				const row = getPrice.get(it.id);
@@ -45,11 +47,12 @@ export function orderRoutes(db) {
 				code = makeCode();
 			}
 
+			const phone = normalizePhone(buyer_phone ?? '');
 			const info = db
 				.prepare(
-					'INSERT INTO orders (code, buyer_name, buyer_session, table_no, note, items, total, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+					'INSERT INTO orders (code, buyer_name, buyer_session, buyer_phone, table_no, note, items, total, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
 				)
-				.run(code, buyer_name, buyer_session, table_no, note, JSON.stringify(clean), total, 'baru');
+				.run(code, buyer_name, buyer_session, phone, table_no, note, JSON.stringify(clean), total, 'baru');
 			const row = db.prepare('SELECT * FROM orders WHERE id = ?').get(Number(info.lastInsertRowid));
 			return res.status(201).json(rowToOrder(row));
 		})
@@ -86,7 +89,17 @@ export function orderRoutes(db) {
 		})
 	);
 
-	// Ubah status pesanan (admin).
+	// Status konfigurasi WA gateway (admin — untuk banner peringatan di portal).
+	r.get('/wa-config', requireAuth, (_req, res) => {
+		return res.json({
+			configured: Boolean(config.wa.apiKey),
+			autoSend: config.wa.autoSend,
+			apiUrl: config.wa.apiUrl
+		});
+	});
+
+	// Ubah status pesanan (admin) + notif WA otomatis ke pelanggan
+	// (diproses / selesai / batal) via gateway kalau WA_API_KEY terisi.
 	r.patch(
 		'/:id/status',
 		requireAuth,
@@ -103,7 +116,17 @@ export function orderRoutes(db) {
 				id
 			);
 			const row = db.prepare('SELECT * FROM orders WHERE id = ?').get(id);
-			return res.json(rowToOrder(row));
+			const order = rowToOrder(row);
+			// Kirim WA otomatis hanya untuk status yang relevan; jangan blokir response terlalu lama.
+			let wa = null;
+			if (['diproses', 'selesai', 'batal'].includes(order.status)) {
+				try {
+					wa = await sendOrderStatusWa(order);
+				} catch (e) {
+					wa = { sent: false, to: normalizePhone(order.buyer_phone), error: String(e?.message ?? e) };
+				}
+			}
+			return res.json({ ...order, wa });
 		})
 	);
 
